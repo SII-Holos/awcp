@@ -13,7 +13,7 @@ packages/
 examples/
 └── basic-delegation/  # Basic usage example
 
-ref/                # Protocol specification documents
+docs/               # Protocol specification and documentation
 docs/               # Documentation
 ```
 

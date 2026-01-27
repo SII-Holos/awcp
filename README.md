@@ -102,7 +102,7 @@ Host                              Remote
 
 ## Documentation
 
-- [Protocol Specification](ref/v1.md) - Detailed protocol design
+- [Protocol Specification](docs/v1.md) - Detailed protocol design
 - [Examples](examples/) - Usage examples
 - [Development Guide](AGENTS.md) - Contributing guidelines
 
