@@ -1,0 +1,30 @@
+{
+  "name": "01-local-basic",
+  "description": "Basic local single-machine AWCP demonstration",
+  
+  "delegator": {
+    "port": 3100,
+    "export": {
+      "baseDir": "./exports"
+    },
+    "ssh": {
+      "host": "localhost",
+      "port": 22,
+      "user": "${USER}"
+    }
+  },
+  
+  "executor": {
+    "port": 4001,
+    "mount": {
+      "root": "./mounts"
+    }
+  },
+  
+  "workspace": "./workspace",
+  
+  "task": {
+    "description": "Add a line to hello.txt",
+    "prompt": "append hello.txt Modified by AWCP at ${TIMESTAMP}"
+  }
+}

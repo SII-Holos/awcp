@@ -5,7 +5,8 @@
   "description": "Agent Workspace Collaboration Protocol - Monorepo",
   "workspaces": [
     "packages/*",
-    "examples/*"
+    "experiments/shared/*",
+    "experiments/scenarios/*"
   ],
   "scripts": {
     "build": "npm run build --workspaces",

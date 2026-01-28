@@ -1,0 +1,20 @@
+{
+  "name": "@awcp-experiments/01-local-basic",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "description": "Basic local AWCP delegation experiment",
+  "scripts": {
+    "build": "echo 'No build needed - using tsx'",
+    "start:delegator": "npx tsx start-delegator.ts",
+    "start:executor": "npx tsx --import ../../shared/executor-agent/src/agent.ts",
+    "trigger": "npx tsx trigger.ts",
+    "clean": "./cleanup.sh"
+  },
+  "dependencies": {
+    "@awcp/sdk": "^0.1.0"
+  },
+  "devDependencies": {
+    "tsx": "^4.7.0"
+  }
+}
