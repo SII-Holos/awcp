@@ -6,17 +6,15 @@ node_modules/
 dist/
 *.tsbuildinfo
 
-# Compiled files in src (should only be in dist/)
-**/src/**/*.js
-**/src/**/*.js.map
-**/src/**/*.d.ts
-**/src/**/*.d.ts.map
+# TypeScript compiled files (this is a pure TS project)
+*.js
+*.js.map
+*.d.ts
+*.d.ts.map
 
-# Compiled files in experiments (co-located with .ts sources)
-experiments/**/*.js
-experiments/**/*.js.map
-experiments/**/*.d.ts
-experiments/**/*.d.ts.map
+# Exception: keep config files that are JS
+!*.config.js
+!.*.js
 
 # IDE
 .idea/
