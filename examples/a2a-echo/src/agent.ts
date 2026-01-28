@@ -3,8 +3,8 @@
  *
  * This example shows how to add AWCP support to an existing A2A agent.
  * The AWCP integration requires only 3 lines of code:
- * 1. Import awcpHandler and config
- * 2. app.use('/awcp', awcpHandler({ executor, config }))
+ * 1. Import executorHandler and config
+ * 2. app.use('/awcp', executorHandler({ executor, config }))
  */
 
 import express from 'express';
@@ -14,7 +14,7 @@ import {
   InMemoryTaskStore,
 } from '@a2a-js/sdk/server';
 import { agentCardHandler, jsonRpcHandler, UserBuilder } from '@a2a-js/sdk/server/express';
-import { awcpHandler } from '@awcp/sdk/server/express';
+import { executorHandler } from '@awcp/sdk/server/express';
 
 import { echoAgentCard } from './agent-card.js';
 import { EchoExecutor } from './executor.js';
@@ -39,7 +39,7 @@ app.use('/a2a', jsonRpcHandler({
 }));
 
 // AWCP endpoint - Enable workspace delegation support
-app.use('/awcp', awcpHandler({ executor, config: awcpConfig }));
+app.use('/awcp', executorHandler({ executor, config: awcpConfig }));
 
 const PORT = 4001;
 

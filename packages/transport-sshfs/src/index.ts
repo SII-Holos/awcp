@@ -4,16 +4,16 @@
  * SSHFS Transport implementation for AWCP data plane
  */
 
-// Host-side exports
+// Delegator-side exports
 export {
   CredentialManager,
   type CredentialManagerConfig,
   type GeneratedCredential,
-} from './host/index.js';
+} from './delegator/index.js';
 
-// Remote-side exports
+// Executor-side exports
 export {
   SshfsMountClient,
   type SshfsMountConfig,
   type MountParams,
-} from './remote/index.js';
+} from './executor/index.js';

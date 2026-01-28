@@ -1,7 +1,7 @@
 {
   "name": "@awcp/sdk",
   "version": "0.1.0",
-  "description": "AWCP SDK - Host and Remote Daemon implementations",
+  "description": "AWCP SDK - Delegator and Executor Daemon implementations",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -10,18 +10,21 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     },
-    "./host": {
-      "types": "./dist/host/index.d.ts",
-      "import": "./dist/host/index.js"
+    "./delegator": {
+      "types": "./dist/delegator/index.d.ts",
+      "import": "./dist/delegator/index.js"
     },
-    "./remote": {
-      "types": "./dist/remote/index.d.ts",
-      "import": "./dist/remote/index.js"
+    "./executor": {
+      "types": "./dist/executor/index.d.ts",
+      "import": "./dist/executor/index.js"
     },
     "./server/express": {
       "types": "./dist/server/express/index.d.ts",
       "import": "./dist/server/express/index.js"
     }
+  },
+  "bin": {
+    "delegator-daemon": "./dist/delegator/bin/daemon.js"
   },
   "files": [
     "dist",
@@ -50,8 +53,8 @@
     "awcp",
     "agent",
     "sdk",
-    "host",
-    "remote"
+    "delegator",
+    "executor"
   ],
   "license": "Apache-2.0",
   "repository": {

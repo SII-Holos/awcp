@@ -2,9 +2,9 @@
  * AWCP Configuration for Echo Agent
  */
 
-import type { AwcpRemoteConfig } from '@awcp/sdk';
+import type { ExecutorConfig } from '@awcp/sdk';
 
-export const awcpConfig: AwcpRemoteConfig = {
+export const awcpConfig: ExecutorConfig = {
   mount: {
     root: '/tmp/awcp/mounts',
   },
@@ -19,14 +19,14 @@ export const awcpConfig: AwcpRemoteConfig = {
     autoAccept: true,
   },
   hooks: {
-    onTaskStart: (delegationId, mountPoint) => {
+    onTaskStart: (delegationId: string, mountPoint: string) => {
       console.log(`[AWCP] Task started: ${delegationId} at ${mountPoint}`);
     },
-    onTaskComplete: (delegationId, summary) => {
+    onTaskComplete: (delegationId: string, summary: string) => {
       console.log(`[AWCP] Task completed: ${delegationId}`);
       console.log(`[AWCP] Summary: ${summary}`);
     },
-    onError: (delegationId, error) => {
+    onError: (delegationId: string, error: Error) => {
       console.error(`[AWCP] Task error: ${delegationId}`, error.message);
     },
   },

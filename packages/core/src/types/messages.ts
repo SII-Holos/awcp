@@ -71,7 +71,7 @@ export interface WorkspaceSpec {
 }
 
 /**
- * Requirements for Remote to check
+ * Requirements for Executor to check
  */
 export interface Requirements {
   /** Transport type (default: sshfs) */
@@ -79,15 +79,15 @@ export interface Requirements {
 }
 
 /**
- * Remote mount specification in ACCEPT
+ * Executor mount specification in ACCEPT
  */
-export interface RemoteMount {
-  /** Local absolute path on Remote, determined by Remote's policy */
+export interface ExecutorMount {
+  /** Local absolute path on Executor, determined by Executor's policy */
   mountPoint: string;
 }
 
 /**
- * Sandbox profile - capability declaration by Remote
+ * Sandbox profile - capability declaration by Executor
  */
 export interface SandboxProfile {
   /** Whether tools are restricted to mount point CWD */
@@ -99,12 +99,12 @@ export interface SandboxProfile {
 }
 
 /**
- * Remote constraints in ACCEPT
+ * Executor constraints in ACCEPT
  */
-export interface RemoteConstraints {
+export interface ExecutorConstraints {
   /** Actually accepted access mode (may be downgraded) */
   acceptedAccessMode?: AccessMode;
-  /** Maximum TTL Remote allows */
+  /** Maximum TTL Executor allows */
   maxTtlSeconds?: number;
   /** Self-declared sandbox constraints */
   sandboxProfile?: SandboxProfile;
@@ -145,7 +145,7 @@ export interface BaseMessage {
 }
 
 /**
- * INVITE message: Host → Remote
+ * INVITE message: Delegator → Executor
  * Initiates collaboration request
  */
 export interface InviteMessage extends BaseMessage {
@@ -157,17 +157,17 @@ export interface InviteMessage extends BaseMessage {
 }
 
 /**
- * ACCEPT message: Remote → Host
+ * ACCEPT message: Executor → Delegator
  * Confirms acceptance with mount point
  */
 export interface AcceptMessage extends BaseMessage {
   type: 'ACCEPT';
-  remoteMount: RemoteMount;
-  remoteConstraints?: RemoteConstraints;
+  executorMount: ExecutorMount;
+  executorConstraints?: ExecutorConstraints;
 }
 
 /**
- * START message: Host → Remote
+ * START message: Delegator → Executor
  * Authorizes and provides credentials
  */
 export interface StartMessage extends BaseMessage {
@@ -177,14 +177,14 @@ export interface StartMessage extends BaseMessage {
 }
 
 /**
- * DONE message: Remote → Host
+ * DONE message: Executor → Delegator
  * Reports successful completion
  */
 export interface DoneMessage extends BaseMessage {
   type: 'DONE';
   /** Summary of what was accomplished */
   finalSummary: string;
-  /** Files Remote suggests Host to review */
+  /** Files Executor suggests Delegator to review */
   highlights?: string[];
   /** Additional notes */
   notes?: string;
@@ -226,8 +226,8 @@ export interface Delegation {
   task: TaskSpec;
   leaseConfig: LeaseConfig;
   activeLease?: ActiveLease;
-  remoteMount?: RemoteMount;
-  remoteConstraints?: RemoteConstraints;
+  executorMount?: ExecutorMount;
+  executorConstraints?: ExecutorConstraints;
   result?: {
     summary: string;
     highlights?: string[];
@@ -241,3 +241,13 @@ export interface Delegation {
   createdAt: string;
   updatedAt: string;
 }
+
+// ============================================
+// Backwards compatibility aliases (deprecated)
+// ============================================
+
+/** @deprecated Use ExecutorMount instead */
+export type RemoteMount = ExecutorMount;
+
+/** @deprecated Use ExecutorConstraints instead */
+export type RemoteConstraints = ExecutorConstraints;

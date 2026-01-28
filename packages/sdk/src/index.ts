@@ -1,51 +1,77 @@
 /**
  * @awcp/sdk
  * 
- * AWCP SDK - Host and Remote Daemon implementations
+ * AWCP SDK - Delegator and Executor Daemon implementations
  */
 
 // ============================================
 // High-level API (recommended for most users)
 // ============================================
 
-// Remote-side: Enable AWCP support in an A2A agent
+// Delegator-side: Create delegations to Executor agents
 export {
-  AwcpRemoteService,
-  type AwcpRemoteServiceOptions,
-  type ServiceStatus,
-  type AwcpRemoteConfig,
+  DelegatorService,
+  type DelegatorServiceOptions,
+  type DelegateParams,
+  type DelegatorServiceStatus,
+  type DelegatorConfig,
+  type SshConfig,
+  type DelegationDefaults,
+  type DelegatorHooks,
+} from './delegator/index.js';
+
+// Executor-side: Enable AWCP support in an A2A agent
+export {
+  ExecutorService,
+  type ExecutorServiceOptions,
+  type ExecutorServiceStatus,
+  type ExecutorConfig,
   type MountConfig,
   type PolicyConstraints,
-  type AwcpHooks,
-} from './remote/index.js';
+  type ExecutorHooks,
+} from './executor/index.js';
+
+// ============================================
+// Daemon Mode (for running Delegator as independent process)
+// ============================================
+
+export {
+  startDelegatorDaemon,
+  DelegatorDaemonClient,
+  type DaemonConfig,
+  type DaemonInstance,
+  type DelegateRequest,
+  type DelegateResponse,
+  type ListDelegationsResponse,
+} from './delegator/index.js';
 
 // ============================================
 // Low-level API (for advanced use)
 // ============================================
 
-// Host-side exports
+// Delegator-side low-level exports
 export {
-  HostDaemon,
-  type HostDaemonConfig,
-  type HostDaemonEvents,
+  DelegatorDaemon,
+  type DelegatorDaemonConfig,
+  type DelegatorDaemonEvents,
   AdmissionController,
   type AdmissionConfig,
   type AdmissionResult,
   type WorkspaceStats,
   ExportViewManager,
-  type ExportConfig,
-} from './host/index.js';
+  ExecutorClient,
+} from './delegator/index.js';
 
-// Remote-side low-level exports
+// Executor-side low-level exports
 export {
-  RemoteDaemon,
-  type RemoteDaemonConfig,
-  type RemoteDaemonEvents,
+  ExecutorDaemon,
+  type ExecutorDaemonConfig,
+  type ExecutorDaemonEvents,
   LocalPolicy,
   type PolicyConfig,
   type MountPointValidation,
-  HostClient,
-} from './remote/index.js';
+  DelegatorClient,
+} from './executor/index.js';
 
 // Re-export core types for convenience
 export * from '@awcp/core';

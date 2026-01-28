@@ -198,8 +198,8 @@ export function applyMessageToDelegation(
 
   switch (message.type) {
     case 'ACCEPT':
-      updated.remoteMount = message.remoteMount;
-      updated.remoteConstraints = message.remoteConstraints;
+      updated.executorMount = message.executorMount;
+      updated.executorConstraints = message.executorConstraints;
       break;
     
     case 'START':
