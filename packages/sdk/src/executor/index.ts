@@ -1,4 +1,4 @@
-// High-level API (recommended)
+// High-level API
 export { ExecutorService, type ExecutorServiceOptions, type ExecutorServiceStatus } from './service.js';
 export {
   type ExecutorConfig,
@@ -10,7 +10,6 @@ export {
   resolveExecutorConfig,
 } from './config.js';
 
-// Low-level API (for advanced use)
-export { ExecutorDaemon, type ExecutorDaemonConfig, type ExecutorDaemonEvents } from './daemon.js';
+// Utilities (can be used independently)
 export { LocalPolicy, type PolicyConfig, type MountPointValidation } from './policy.js';
 export { DelegatorClient } from './delegator-client.js';

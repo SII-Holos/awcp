@@ -1,4 +1,4 @@
-// High-level API (recommended)
+// High-level API
 export {
   DelegatorService,
   type DelegatorServiceOptions,
@@ -30,8 +30,7 @@ export {
   type ListDelegationsResponse,
 } from './bin/client.js';
 
-// Low-level API (for advanced use)
-export { DelegatorDaemon, type DelegatorDaemonConfig, type DelegatorDaemonEvents } from './daemon.js';
+// Utilities (can be used independently)
 export { AdmissionController, type AdmissionConfig, type AdmissionResult, type WorkspaceStats } from './admission.js';
 export { ExportViewManager } from './export-view.js';
 export { ExecutorClient, type InviteResponse } from './executor-client.js';

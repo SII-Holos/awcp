@@ -1,41 +1,25 @@
 /**
  * @awcp/sdk
  * 
- * AWCP SDK - Delegator and Executor Daemon implementations
+ * AWCP SDK - Delegator and Executor implementations
  */
 
 // ============================================
-// High-level API (recommended for most users)
+// Delegator API (for creating delegations)
 // ============================================
 
-// Delegator-side: Create delegations to Executor agents
 export {
+  // Service
   DelegatorService,
   type DelegatorServiceOptions,
   type DelegateParams,
   type DelegatorServiceStatus,
+  // Config
   type DelegatorConfig,
   type SshConfig,
   type DelegationDefaults,
   type DelegatorHooks,
-} from './delegator/index.js';
-
-// Executor-side: Enable AWCP support in an A2A agent
-export {
-  ExecutorService,
-  type ExecutorServiceOptions,
-  type ExecutorServiceStatus,
-  type ExecutorConfig,
-  type MountConfig,
-  type PolicyConstraints,
-  type ExecutorHooks,
-} from './executor/index.js';
-
-// ============================================
-// Daemon Mode (for running Delegator as independent process)
-// ============================================
-
-export {
+  // Daemon mode
   startDelegatorDaemon,
   DelegatorDaemonClient,
   type DaemonConfig,
@@ -43,17 +27,7 @@ export {
   type DelegateRequest,
   type DelegateResponse,
   type ListDelegationsResponse,
-} from './delegator/index.js';
-
-// ============================================
-// Low-level API (for advanced use)
-// ============================================
-
-// Delegator-side low-level exports
-export {
-  DelegatorDaemon,
-  type DelegatorDaemonConfig,
-  type DelegatorDaemonEvents,
+  // Utilities
   AdmissionController,
   type AdmissionConfig,
   type AdmissionResult,
@@ -62,16 +36,29 @@ export {
   ExecutorClient,
 } from './delegator/index.js';
 
-// Executor-side low-level exports
+// ============================================
+// Executor API (for executing delegations)
+// ============================================
+
 export {
-  ExecutorDaemon,
-  type ExecutorDaemonConfig,
-  type ExecutorDaemonEvents,
+  // Service
+  ExecutorService,
+  type ExecutorServiceOptions,
+  type ExecutorServiceStatus,
+  // Config
+  type ExecutorConfig,
+  type MountConfig,
+  type PolicyConstraints,
+  type ExecutorHooks,
+  // Utilities
   LocalPolicy,
   type PolicyConfig,
   type MountPointValidation,
   DelegatorClient,
 } from './executor/index.js';
 
+// ============================================
 // Re-export core types for convenience
+// ============================================
+
 export * from '@awcp/core';
