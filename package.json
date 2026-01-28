@@ -4,7 +4,8 @@
   "private": true,
   "description": "Agent Workspace Collaboration Protocol - Monorepo",
   "workspaces": [
-    "packages/*"
+    "packages/*",
+    "experiment"
   ],
   "scripts": {
     "build": "npm run build --workspaces",

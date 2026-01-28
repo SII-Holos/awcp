@@ -187,11 +187,10 @@ export class RemoteDaemon extends EventEmitter {
       remoteConstraints,
     };
 
-    await this.config.sendMessage(peerUrl, acceptMessage);
-
-    // Store as active delegation (waiting for START)
+    // Store as active delegation BEFORE sending (to avoid race condition with fast START)
+    // Note: Using forceState since state machine events are Host-centric
     const stateMachine = new DelegationStateMachine('invited');
-    stateMachine.transition({ type: 'RECEIVE_ACCEPT', message: acceptMessage });
+    stateMachine.forceState('accepted');  // Remote just sent ACCEPT, now waiting for START
     
     this.activeDelegations.set(delegationId, {
       id: delegationId,
@@ -202,6 +201,8 @@ export class RemoteDaemon extends EventEmitter {
     });
 
     this.pendingInvitations.delete(delegationId);
+
+    await this.config.sendMessage(peerUrl, acceptMessage);
   }
 
   /**
@@ -232,8 +233,9 @@ export class RemoteDaemon extends EventEmitter {
     }
 
     try {
-      // Step 1: Transition state
-      delegation.stateMachine.transition({ type: 'SEND_START', message: start });
+      // Step 1: Transition state (Remote received START, now starting)
+      // Using forceState since state machine events are Host-centric
+      delegation.stateMachine.forceState('started');
 
       // Step 2: Ensure mount point exists and is empty
       await this.localPolicy.prepareMountPoint(delegation.mountPoint);
@@ -273,7 +275,7 @@ export class RemoteDaemon extends EventEmitter {
       };
 
       await this.config.sendMessage(peerUrl, doneMessage);
-      delegation.stateMachine.transition({ type: 'RECEIVE_DONE', message: doneMessage });
+      delegation.stateMachine.forceState('completed');  // Remote sent DONE, task completed
 
       this.emit('task:completed', delegation.id, result.summary);
       this.activeDelegations.delete(delegation.id);

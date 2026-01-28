@@ -144,12 +144,12 @@ export class HostDaemon extends EventEmitter {
       },
     };
 
-    await this.config.sendMessage(params.peerUrl, inviteMessage);
-    
-    // Transition state
+    // Transition state BEFORE sending (to avoid race condition with fast responses)
     stateMachine.transition({ type: 'SEND_INVITE', message: inviteMessage });
     delegation.state = stateMachine.getState();
     delegation.updatedAt = new Date().toISOString();
+
+    await this.config.sendMessage(params.peerUrl, inviteMessage);
 
     this.emit('delegation:created', delegation);
     
@@ -226,14 +226,14 @@ export class HostDaemon extends EventEmitter {
       },
     };
 
-    await this.config.sendMessage(delegation.peerUrl, startMessage);
-
-    // Transition to started
+    // Transition to started BEFORE sending (to avoid race condition)
     stateMachine.transition({ type: 'SEND_START', message: startMessage });
     updated.state = stateMachine.getState();
     updated.activeLease = startMessage.lease;
     updated.updatedAt = new Date().toISOString();
     this.delegations.set(delegation.id, updated);
+
+    await this.config.sendMessage(delegation.peerUrl, startMessage);
 
     this.emit('delegation:started', updated);
   }
