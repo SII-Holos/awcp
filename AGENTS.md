@@ -1,83 +1,197 @@
 # AWCP Development Guidelines
 
-This document provides guidelines for AI agents and developers working on the AWCP codebase.
+Guidelines for AI agents and developers working on the AWCP codebase.
 
 ## Project Structure
 
 ```
 packages/
-├── core/           # @awcp/core - Protocol types, state machine, errors
-├── sdk/            # @awcp/sdk - Host and Remote daemon implementations  
-└── transport-sshfs/# @awcp/transport-sshfs - SSHFS data plane
+├── core/              # @awcp/core - Protocol types, state machine, errors
+│   └── test/          # Unit tests (vitest)
+├── sdk/               # @awcp/sdk - Delegator and Executor implementations
+│   └── test/          # Unit tests (vitest)
+└── transport-sshfs/   # @awcp/transport-sshfs - SSHFS data plane
+    └── test/          # Unit tests (vitest)
 
-examples/
-└── basic-delegation/  # Basic usage example
-
-docs/               # Protocol specification and documentation
-docs/               # Documentation
+experiments/
+├── shared/
+│   └── executor-agent/   # Shared A2A executor agent
+└── scenarios/
+    ├── 01-local-basic/   # Basic delegation test
+    └── 02-admission-test/ # Admission control test
 ```
 
 ## Development Commands
 
 ```bash
-# Install dependencies
-npm install
+npm install           # Install dependencies
+npm run build         # Build all packages
+npm test              # Run all tests (unit + integration)
+npm run typecheck     # Type check
 
-# Build all packages
-npm run build
+# Run specific package tests
+npm test -w @awcp/core
+npm test -w @awcp/sdk
 
-# Run tests
-npm test
-
-# Type check
-npm run typecheck
+# Run integration test scenarios
+cd experiments/scenarios/01-local-basic && ./run.sh
+cd experiments/scenarios/02-admission-test && ./run.sh
 ```
-
-## Code Style
-
-- Use TypeScript strict mode
-- Prefer explicit types over inference for public APIs
-- Use `type` for type aliases, `interface` for object shapes that may be extended
-- Error classes extend `AwcpError` from `@awcp/core`
-- Use async/await, not callbacks
-- Keep functions small and focused
 
 ## Package Dependencies
 
 ```
-@awcp/core          (no internal deps)
+@awcp/core              (no internal deps)
     ↑
-@awcp/sdk           (depends on core)
+@awcp/transport-sshfs   (depends on core)
     ↑
-@awcp/transport-*   (depends on core, optionally sdk)
+@awcp/sdk               (depends on core, transport-sshfs)
 ```
 
-## Naming Conventions
+## Key Components
 
-- Message types: `InviteMessage`, `AcceptMessage`, `StartMessage`, etc.
-- Error codes: `SCREAMING_SNAKE_CASE` (e.g., `WORKSPACE_TOO_LARGE`)
-- State names: `lowercase` (e.g., `created`, `invited`, `running`)
-- Config interfaces: `*Config` suffix (e.g., `HostDaemonConfig`)
-- Event interfaces: `*Events` suffix (e.g., `HostDaemonEvents`)
+### Delegator Side (packages/sdk/src/delegator/)
 
-## Protocol Implementation Notes
+| File | Purpose |
+|------|---------|
+| `service.ts` | Main service - manages delegation lifecycle |
+| `admission.ts` | Workspace size/file count validation |
+| `config.ts` | Configuration with defaults |
+| `export-view.ts` | Creates export directories for SSHFS |
+| `executor-client.ts` | HTTP client to send messages to Executor |
+| `bin/daemon.ts` | Standalone HTTP daemon |
+| `bin/client.ts` | Client SDK for daemon API |
 
-1. **State Machine**: All state transitions must go through `DelegationStateMachine`
-2. **Messages**: Use `PROTOCOL_VERSION` constant from core
-3. **Errors**: Use typed errors from `@awcp/core/errors`
-4. **Mount Points**: Remote always decides mount location (security requirement)
-5. **Credentials**: Never sent in INVITE, only in START after ACCEPT
+### Executor Side (packages/sdk/src/executor/)
+
+| File | Purpose |
+|------|---------|
+| `service.ts` | Main service - handles INVITE/START messages |
+| `policy.ts` | Mount point policy and cleanup |
+| `config.ts` | Configuration with defaults |
+| `delegator-client.ts` | HTTP client to send DONE/ERROR back |
+
+### Transport (packages/transport-sshfs/)
+
+| File | Purpose |
+|------|---------|
+| `delegator/credential-manager.ts` | SSH key generation/revocation |
+| `executor/sshfs-client.ts` | SSHFS mount/unmount operations |
+
+## Protocol Flow
+
+```
+Delegator                              Executor
+    │                                      │
+    │ ─── INVITE (sync) ─────────────────► │  handleInvite()
+    │ ◄── ACCEPT ──────────────────────────│
+    │                                      │
+    │ ─── START (async, returns {ok:true})►│  handleStart()
+    │                                      │    └─► mount → execute → unmount
+    │ ◄── DONE/ERROR (callback) ──────────│
+```
+
+**Key Points:**
+- INVITE/ACCEPT are synchronous HTTP request/response
+- START returns immediately with `{ok:true}`, task runs async
+- DONE/ERROR sent to Delegator's callback URL (X-AWCP-Callback-URL header)
+- Cleanup (unmount, revoke keys) happens before sending DONE
+
+## State Machine
+
+Valid states: `created → invited → accepted → started → running → completed`
+
+Terminal states: `completed`, `error`, `cancelled`, `expired`
+
+All transitions must go through `DelegationStateMachine` from `@awcp/core`.
+
+## Error Handling
+
+All errors extend `AwcpError` from `@awcp/core`:
+
+```typescript
+// Throwing
+throw new WorkspaceTooLargeError(stats, hint, delegationId);
+
+// HTTP response includes hint
+res.status(400).json({
+  error: error.message,
+  code: error.code,
+  hint: error.hint,
+});
+```
+
+Available errors: `DeclinedError`, `DependencyMissingError`, `WorkspaceTooLargeError`, 
+`MountPointDeniedError`, `MountFailedError`, `TaskFailedError`, `LeaseExpiredError`, `AuthFailedError`
+
+## Admission Control
+
+Delegator validates workspace before sending INVITE:
+
+```typescript
+// In delegator config
+admission: {
+  maxTotalBytes: 100 * 1024 * 1024,  // 100MB
+  maxFileCount: 10000,
+  maxSingleFileBytes: 50 * 1024 * 1024,  // 50MB
+}
+```
+
+Implementation skips `node_modules/` and `.git/` directories.
+
+## SSH Key Management
+
+- Keys stored in `~/.awcp/keys/` (not `/tmp`)
+- Public key added to `~/.ssh/authorized_keys` with marker `awcp-temp-key-{delegationId}`
+- Keys revoked immediately after DONE/ERROR
+- `cleanupStaleKeys()` removes orphaned keys on startup
+
+## SSHFS Notes
+
+- Uses `noappledouble` option to prevent macOS `._*` files
+- Mount detection via device number comparison (not process monitoring)
+- Timeout cleanup includes zombie mount removal
 
 ## Testing
 
-- Unit tests: Use Vitest
-- Integration tests: Use the demo example pattern
-- Always mock filesystem and network operations in tests
+### Unit Tests (Vitest)
+
+```bash
+npm test  # Runs all package tests
+```
+
+Test locations:
+- `packages/core/test/` - State machine, message types
+- `packages/sdk/test/` - Admission, config, services
+- `packages/transport-sshfs/test/` - Credential manager
+
+### Integration Tests
+
+```bash
+cd experiments/scenarios/01-local-basic && ./run.sh   # Full flow
+cd experiments/scenarios/02-admission-test && ./run.sh # Admission rejection
+```
+
+## Code Style
+
+- TypeScript strict mode
+- Explicit types for public APIs
+- `interface` for extensible shapes, `type` for aliases
+- async/await (no callbacks)
+- Errors extend `AwcpError`
+
+## Naming Conventions
+
+- Messages: `InviteMessage`, `AcceptMessage`, `StartMessage`, `DoneMessage`, `ErrorMessage`
+- Error codes: `SCREAMING_SNAKE_CASE` (e.g., `WORKSPACE_TOO_LARGE`)
+- States: `lowercase` (e.g., `created`, `invited`, `running`)
+- Config: `*Config` suffix
+- Hooks: `on*` prefix (e.g., `onInvite`, `onTaskComplete`)
 
 ## Adding New Transport
 
-1. Create new package: `packages/transport-{name}/`
-2. Implement host-side credential/export management
-3. Implement remote-side mount/unmount client
-4. Export from package index
-5. Add example usage
+1. Create `packages/transport-{name}/`
+2. Implement delegator-side: credential generation, export management
+3. Implement executor-side: mount/unmount client
+4. Add tests in `test/`
+5. Add integration scenario in `experiments/scenarios/`
