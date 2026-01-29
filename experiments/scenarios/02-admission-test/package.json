@@ -1,0 +1,17 @@
+{
+  "name": "@awcp-experiments/02-admission-test",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "./run.sh",
+    "build": "echo 'No build needed - using tsx'"
+  },
+  "dependencies": {
+    "@awcp/core": "*",
+    "@awcp/sdk": "*"
+  },
+  "devDependencies": {
+    "tsx": "^4.7.0"
+  }
+}

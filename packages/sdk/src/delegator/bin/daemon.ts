@@ -16,6 +16,7 @@ import { createServer } from 'node:http';
 import express, { json } from 'express';
 import { DelegatorService, type DelegatorServiceOptions } from '../service.js';
 import type { DelegatorConfig } from '../config.js';
+import { AwcpError } from '@awcp/core';
 
 /**
  * Daemon configuration
@@ -132,9 +133,18 @@ export async function startDelegatorDaemon(config: DaemonConfig): Promise<Daemon
       res.json({ delegationId });
     } catch (error) {
       console.error('[Delegator Daemon] Error creating delegation:', error);
-      res.status(500).json({
-        error: error instanceof Error ? error.message : 'Failed to create delegation',
-      });
+      
+      if (error instanceof AwcpError) {
+        res.status(400).json({
+          error: error.message,
+          code: error.code,
+          hint: error.hint,
+        });
+      } else {
+        res.status(500).json({
+          error: error instanceof Error ? error.message : 'Failed to create delegation',
+        });
+      }
     }
   });
 

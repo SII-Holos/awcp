@@ -1,4 +1,5 @@
-import { stat } from 'node:fs/promises';
+import { stat, readdir } from 'node:fs/promises';
+import { join } from 'node:path';
 
 /**
  * Admission control configuration
@@ -105,23 +106,47 @@ export class AdmissionController {
   }
 
   /**
-   * Estimate workspace statistics
-   * 
-   * This is a quick estimation, not an exact count.
-   * For large directories, we may sample or use filesystem metadata.
+   * Estimate workspace statistics by recursively scanning the directory
    */
   private async estimateWorkspaceStats(localDir: string): Promise<WorkspaceStats> {
-    // Simple implementation: just check the root directory stats
-    // Real implementation would recursively scan (with limits)
-    // Verify directory exists
-    await stat(localDir);
-    
-    // For now, return basic stats
-    // TODO: Implement proper recursive scanning with sampling
+    let totalBytes = 0;
+    let fileCount = 0;
+    let largestFileBytes = 0;
+
+    const scanDir = async (dir: string): Promise<void> => {
+      const entries = await readdir(dir, { withFileTypes: true });
+      
+      for (const entry of entries) {
+        const fullPath = join(dir, entry.name);
+        
+        if (entry.isDirectory()) {
+          // Skip common large directories that shouldn't be delegated
+          if (entry.name === 'node_modules' || entry.name === '.git') {
+            continue;
+          }
+          await scanDir(fullPath);
+        } else if (entry.isFile()) {
+          try {
+            const fileStat = await stat(fullPath);
+            const size = fileStat.size;
+            totalBytes += size;
+            fileCount++;
+            if (size > largestFileBytes) {
+              largestFileBytes = size;
+            }
+          } catch {
+            // Skip files we can't stat (permission issues, etc.)
+          }
+        }
+      }
+    };
+
+    await scanDir(localDir);
+
     return {
-      estimatedBytes: undefined, // Would need recursive scan
-      fileCount: undefined, // Would need recursive scan
-      largestFileBytes: undefined, // Would need recursive scan
+      estimatedBytes: totalBytes,
+      fileCount,
+      largestFileBytes,
     };
   }
 

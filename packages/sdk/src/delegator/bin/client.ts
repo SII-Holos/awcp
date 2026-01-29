@@ -168,10 +168,14 @@ export class DelegatorDaemonClient {
       });
 
       if (!response.ok) {
-        const errorBody = await response.json().catch(() => ({}));
-        throw new Error(
-          (errorBody as { error?: string }).error ?? `HTTP ${response.status}: ${response.statusText}`
-        );
+        const errorBody = await response.json().catch(() => ({})) as { 
+          error?: string; 
+          hint?: string;
+          code?: string;
+        };
+        const message = errorBody.error ?? `HTTP ${response.status}: ${response.statusText}`;
+        const hint = errorBody.hint;
+        throw new Error(hint ? `${message} - ${hint}` : message);
       }
 
       return response.json() as Promise<T>;
