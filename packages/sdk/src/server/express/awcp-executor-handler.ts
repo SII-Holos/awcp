@@ -106,11 +106,25 @@ export function executorHandler(options: ExecutorHandlerOptions): Router {
 
   /**
    * GET /status - Get service status
-   *
-   * Returns information about pending and active delegations.
    */
   router.get('/status', (_req, res) => {
     res.json(service.getStatus());
+  });
+
+  /**
+   * POST /cancel/:delegationId - Cancel a delegation
+   */
+  router.post('/cancel/:delegationId', async (req, res) => {
+    try {
+      const { delegationId } = req.params;
+      await service.cancelDelegation(delegationId);
+      res.json({ ok: true, cancelled: true });
+    } catch (error) {
+      console.error('[AWCP Executor] Error cancelling delegation:', error);
+      res.status(error instanceof Error && error.message.includes('not found') ? 404 : 500).json({
+        error: error instanceof Error ? error.message : 'Internal error',
+      });
+    }
   });
 
   return router;

@@ -38,10 +38,27 @@ export class ExecutorClient {
   }
 
   /**
-   * Send ERROR/CANCEL to Executor
+   * Request Executor to cancel a delegation (waits for unmount to complete)
    */
-  async sendError(executorUrl: string, message: AwcpMessage): Promise<void> {
-    await this.send(executorUrl, message);
+  async sendCancel(executorUrl: string, delegationId: string): Promise<void> {
+    const cancelUrl = executorUrl.replace(/\/$/, '') + `/cancel/${delegationId}`;
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), this.timeout);
+
+    try {
+      const response = await fetch(cancelUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        signal: controller.signal,
+      });
+
+      if (!response.ok && response.status !== 404) {
+        const text = await response.text().catch(() => '');
+        throw new Error(`Failed to cancel delegation: ${response.status}${text ? ` - ${text}` : ''}`);
+      }
+    } finally {
+      clearTimeout(timeoutId);
+    }
   }
 
   /**

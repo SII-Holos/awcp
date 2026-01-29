@@ -23,7 +23,6 @@ import {
   applyMessageToDelegation,
   PROTOCOL_VERSION,
   AwcpError,
-  ErrorCodes,
   WorkspaceTooLargeError,
 } from '@awcp/core';
 import { type DelegatorConfig, type ResolvedDelegatorConfig, resolveDelegatorConfig } from './config.js';
@@ -390,18 +389,10 @@ export class DelegatorService {
       throw new Error(`Cannot cancel delegation in state ${delegation.state}`);
     }
 
-    // Send cancel to Executor
-    const errorMessage: ErrorMessage = {
-      version: PROTOCOL_VERSION,
-      type: 'ERROR',
-      delegationId,
-      code: ErrorCodes.CANCELLED,
-      message: 'Delegation cancelled by Delegator',
-    };
+    // Request Executor to cancel (unmount) before we revoke keys
+    await this.executorClient.sendCancel(executorUrl, delegationId).catch(console.error);
 
-    await this.executorClient.sendError(executorUrl, errorMessage).catch(console.error);
-
-    // Cleanup
+    // Now safe to cleanup (revoke SSH keys)
     await this.cleanup(delegationId);
 
     delegation.state = stateMachine.getState();

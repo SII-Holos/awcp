@@ -1,0 +1,20 @@
+{
+  "name": "@awcp-experiments/03-mcp-integration",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "description": "MCP tools integration experiment - tests delegate/delegate_output/delegate_cancel tools",
+  "scripts": {
+    "build": "echo 'No build needed - using tsx'",
+    "start:delegator": "npx tsx start-delegator.ts",
+    "trigger": "npx tsx trigger.ts",
+    "clean": "./cleanup.sh"
+  },
+  "dependencies": {
+    "@awcp/sdk": "^0.1.0",
+    "@modelcontextprotocol/sdk": "^1.12.1"
+  },
+  "devDependencies": {
+    "tsx": "^4.7.0"
+  }
+}

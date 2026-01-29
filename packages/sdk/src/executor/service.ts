@@ -359,6 +359,30 @@ export class ExecutorService {
   }
 
   /**
+   * Cancel a delegation (called by Delegator via /cancel endpoint)
+   */
+  async cancelDelegation(delegationId: string): Promise<void> {
+    const delegation = this.activeDelegations.get(delegationId);
+    if (delegation) {
+      await this.sshfsClient.unmount(delegation.mountPoint).catch(() => {});
+      this.activeDelegations.delete(delegationId);
+      await this.policy.releaseMountPoint(delegation.mountPoint);
+      this.config.hooks.onError?.(
+        delegationId,
+        new AwcpError(ErrorCodes.CANCELLED, 'Delegation cancelled by Delegator', undefined, delegationId)
+      );
+      return;
+    }
+
+    if (this.pendingInvitations.has(delegationId)) {
+      this.pendingInvitations.delete(delegationId);
+      return;
+    }
+
+    throw new Error(`Delegation not found: ${delegationId}`);
+  }
+
+  /**
    * Execute task via A2A executor
    */
   private async executeViaA2A(
