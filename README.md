@@ -144,6 +144,44 @@ cd experiments/scenarios/03-mcp-integration && ./run.sh
   - macOS: `brew install macfuse && brew install sshfs`
   - Linux: `apt install sshfs`
 
+## Setup
+
+AWCP uses SSH certificates for secure, password-free authentication. Run the setup command to configure:
+
+```bash
+# Check current status and see manual instructions
+npx @awcp/transport-sshfs setup
+
+# Or auto-configure (requires sudo for sshd config)
+npx @awcp/transport-sshfs setup --auto
+```
+
+**What the setup does:**
+
+1. **Generates a CA key** at `~/.awcp/ca` (if not present)
+2. **Configures sshd** to trust the CA by adding `TrustedUserCAKeys` to `/etc/ssh/sshd_config`
+
+Once configured, AWCP automatically:
+- Generates a temporary SSH key pair for each delegation
+- Signs it with the CA (with short TTL)
+- Revokes credentials immediately after task completion
+
+**Manual setup** (if you prefer not to use `--auto`):
+
+```bash
+# 1. Generate CA key (AWCP auto-generates this on first use)
+ssh-keygen -t ed25519 -f ~/.awcp/ca -N "" -C "awcp-ca"
+
+# 2. Add to sshd config (requires sudo)
+echo "TrustedUserCAKeys $HOME/.awcp/ca.pub" | sudo tee -a /etc/ssh/sshd_config
+
+# 3. Restart sshd
+# macOS:
+sudo launchctl kickstart -k system/com.openssh.sshd
+# Linux:
+sudo systemctl restart sshd
+```
+
 ## Documentation
 
 - [Protocol Specification](docs/v1.md) - Full protocol design
