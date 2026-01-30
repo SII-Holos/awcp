@@ -16,6 +16,7 @@ describe('resolveDelegatorConfig', () => {
     ssh: {
       host: 'myhost.example.com',
       user: 'myuser',
+      caKeyPath: '/path/to/ca-key',
     },
   };
 
@@ -52,6 +53,7 @@ describe('resolveDelegatorConfig', () => {
           ...minimalConfig.ssh,
           port: 2222,
           keyDir: '/custom/keys',
+          caKeyPath: '/custom/ca-key',
         },
       };
 
@@ -60,6 +62,7 @@ describe('resolveDelegatorConfig', () => {
       expect(resolved.ssh.port).toBe(2222);
       expect(resolved.ssh.user).toBe('myuser');
       expect(resolved.ssh.keyDir).toBe('/custom/keys');
+      expect(resolved.ssh.caKeyPath).toBe('/custom/ca-key');
     });
 
     it('should preserve custom admission limits', () => {

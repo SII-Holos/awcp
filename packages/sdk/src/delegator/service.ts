@@ -116,6 +116,7 @@ export class DelegatorService {
       sshHost: this.config.ssh.host,
       sshPort: this.config.ssh.port,
       sshUser: this.config.ssh.user,
+      caKeyPath: this.config.ssh.caKeyPath,
     });
 
     this.executorClient = new ExecutorClient({

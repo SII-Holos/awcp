@@ -133,7 +133,7 @@ describe('DelegationStateMachine', () => {
           transport: 'sshfs',
           endpoint: { host: 'localhost', port: 22, user: 'test' },
           exportLocator: '/tmp/test',
-          credential: 'test-key',
+          credential: { privateKey: 'test-key', certificate: 'test-cert' },
         },
       };
       expect(sm.transition({ type: 'SEND_START', message: start })).toMatchObject({

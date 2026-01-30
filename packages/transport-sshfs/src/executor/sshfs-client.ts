@@ -1,7 +1,7 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import { writeFile, unlink, mkdir, stat } from 'node:fs/promises';
 import { join } from 'node:path';
-import { MountFailedError, DependencyMissingError } from '@awcp/core';
+import { MountFailedError, DependencyMissingError, type SshCredential } from '@awcp/core';
 
 /**
  * SSHFS Mount Client configuration
@@ -25,7 +25,7 @@ export interface MountParams {
     user: string;
   };
   exportLocator: string;
-  credential: string;
+  credential: SshCredential;
   mountPoint: string;
   options?: Record<string, string>;
 }
@@ -33,14 +33,53 @@ export interface MountParams {
 /**
  * Active mount tracking
  */
-interface ActiveMount {
+export interface ActiveMount {
   mountPoint: string;
   keyPath: string;
+  certPath: string;
   process?: ChildProcess;
 }
 
-const DEFAULT_TEMP_KEY_DIR = '/tmp/awcp/client-keys';
+export const DEFAULT_TEMP_KEY_DIR = '/tmp/awcp/client-keys';
 const DEFAULT_MOUNT_TIMEOUT = 30000;
+
+/**
+ * Build SSHFS command arguments
+ */
+export function buildSshfsArgs(
+  params: MountParams,
+  keyPath: string,
+  certPath: string,
+  defaultOptions?: Record<string, string>,
+): string[] {
+  const { host, port, user } = params.endpoint;
+  const remoteSpec = `${user}@${host}:${params.exportLocator}`;
+  
+  const options = {
+    ...defaultOptions,
+    ...params.options,
+  };
+
+  const args = [
+    remoteSpec,
+    params.mountPoint,
+    '-o', `IdentityFile=${keyPath}`,
+    '-o', `CertificateFile=${certPath}`,
+    '-o', `Port=${port}`,
+    '-o', 'StrictHostKeyChecking=no',
+    '-o', 'UserKnownHostsFile=/dev/null',
+    '-o', 'reconnect',
+    '-o', 'ServerAliveInterval=15',
+    '-o', 'ServerAliveCountMax=3',
+    '-o', 'noappledouble',
+  ];
+
+  for (const [key, value] of Object.entries(options)) {
+    args.push('-o', `${key}=${value}`);
+  }
+
+  return args;
+}
 
 /**
  * SSHFS Mount Client
@@ -53,6 +92,13 @@ export class SshfsMountClient {
 
   constructor(config?: SshfsMountConfig) {
     this.config = config ?? {};
+  }
+
+  /**
+   * Get active mounts (for testing)
+   */
+  getActiveMounts(): Map<string, ActiveMount> {
+    return this.activeMounts;
   }
 
   /**
@@ -95,6 +141,31 @@ export class SshfsMountClient {
   }
 
   /**
+   * Write credential files to disk
+   */
+  async writeCredentialFiles(
+    tempKeyDir: string,
+    credential: SshCredential,
+  ): Promise<{ keyPath: string; certPath: string }> {
+    await mkdir(tempKeyDir, { recursive: true });
+
+    const keyPath = join(tempKeyDir, `mount-${Date.now()}`);
+    const certPath = `${keyPath}-cert.pub`;
+    await writeFile(keyPath, credential.privateKey, { mode: 0o600 });
+    await writeFile(certPath, credential.certificate, { mode: 0o644 });
+
+    return { keyPath, certPath };
+  }
+
+  /**
+   * Clean up credential files
+   */
+  async cleanupCredentialFiles(keyPath: string, certPath: string): Promise<void> {
+    await unlink(keyPath).catch(() => {});
+    await unlink(certPath).catch(() => {});
+  }
+
+  /**
    * Mount a remote filesystem
    */
   async mount(params: MountParams): Promise<void> {
@@ -108,39 +179,10 @@ export class SshfsMountClient {
     }
 
     const tempKeyDir = this.config.tempKeyDir ?? DEFAULT_TEMP_KEY_DIR;
-    await mkdir(tempKeyDir, { recursive: true });
-
-    // Write credential to temp file
-    const keyPath = join(tempKeyDir, `mount-${Date.now()}`);
-    await writeFile(keyPath, params.credential, { mode: 0o600 });
+    const { keyPath, certPath } = await this.writeCredentialFiles(tempKeyDir, params.credential);
 
     try {
-      // Build sshfs command
-      const { host, port, user } = params.endpoint;
-      const remoteSpec = `${user}@${host}:${params.exportLocator}`;
-      
-      const options = {
-        ...this.config.defaultOptions,
-        ...params.options,
-      };
-
-      const args = [
-        remoteSpec,
-        params.mountPoint,
-        '-o', `IdentityFile=${keyPath}`,
-        '-o', `Port=${port}`,
-        '-o', 'StrictHostKeyChecking=no',
-        '-o', 'UserKnownHostsFile=/dev/null',
-        '-o', 'reconnect',
-        '-o', 'ServerAliveInterval=15',
-        '-o', 'ServerAliveCountMax=3',
-        '-o', 'noappledouble',  // Prevent macOS ._* metadata files
-      ];
-
-      // Add custom options
-      for (const [key, value] of Object.entries(options)) {
-        args.push('-o', `${key}=${value}`);
-      }
+      const args = buildSshfsArgs(params, keyPath, certPath, this.config.defaultOptions);
 
       console.log(`[SSHFS] Mounting: sshfs ${args.join(' ')}`);
 
@@ -151,11 +193,12 @@ export class SshfsMountClient {
       this.activeMounts.set(params.mountPoint, {
         mountPoint: params.mountPoint,
         keyPath,
+        certPath,
       });
 
     } catch (error) {
-      // Cleanup key on failure
-      await unlink(keyPath).catch(() => {});
+      // Cleanup key and cert on failure
+      await this.cleanupCredentialFiles(keyPath, certPath);
       throw error;
     }
   }
@@ -188,9 +231,9 @@ export class SshfsMountClient {
       console.warn(`Failed to unmount ${mountPoint}, may need manual cleanup`);
     }
 
-    // Cleanup
+    // Cleanup key and certificate files
     if (activeMount) {
-      await unlink(activeMount.keyPath).catch(() => {});
+      await this.cleanupCredentialFiles(activeMount.keyPath, activeMount.certPath);
       this.activeMounts.delete(mountPoint);
     }
   }

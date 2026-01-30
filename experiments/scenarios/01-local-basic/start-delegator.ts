@@ -3,7 +3,8 @@
  */
 
 import { startDelegatorDaemon } from '@awcp/sdk';
-import { resolve } from 'node:path';
+import { resolve, join } from 'node:path';
+import { homedir } from 'node:os';
 
 const SCENARIO_DIR = process.env.SCENARIO_DIR || process.cwd();
 const PORT = parseInt(process.env.DELEGATOR_PORT || '3100', 10);
@@ -30,6 +31,7 @@ async function main() {
         host: 'localhost',
         user: process.env.USER || 'user',
         port: 22,
+        caKeyPath: join(homedir(), '.awcp', 'ca'),
       },
     },
   });

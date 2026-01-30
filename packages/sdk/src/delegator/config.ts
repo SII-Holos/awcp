@@ -28,6 +28,8 @@ export interface SshConfig {
   user: string;
   /** Directory to store temporary keys (default: '/tmp/awcp/keys') */
   keyDir?: string;
+  /** Path to CA private key for signing SSH certificates */
+  caKeyPath: string;
 }
 
 /**
@@ -146,6 +148,7 @@ export interface ResolvedSshConfig {
   port: number;
   user: string;
   keyDir: string;
+  caKeyPath: string;
 }
 
 /**
@@ -190,6 +193,7 @@ export function resolveDelegatorConfig(config: DelegatorConfig): ResolvedDelegat
       port: config.ssh.port ?? DEFAULT_DELEGATOR_CONFIG.ssh.port,
       user: config.ssh.user,
       keyDir: config.ssh.keyDir ?? DEFAULT_DELEGATOR_CONFIG.ssh.keyDir,
+      caKeyPath: config.ssh.caKeyPath,
     },
     admission: {
       maxTotalBytes: config.admission?.maxTotalBytes ?? DEFAULT_DELEGATOR_CONFIG.admission.maxTotalBytes,

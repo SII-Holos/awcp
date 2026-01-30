@@ -134,6 +134,16 @@ export interface SshEndpoint {
 }
 
 /**
+ * SSH credential for certificate-based authentication
+ */
+export interface SshCredential {
+  /** SSH private key content */
+  privateKey: string;
+  /** SSH certificate content (signed by CA, includes TTL) */
+  certificate: string;
+}
+
+/**
  * Mount information in START message
  */
 export interface MountInfo {
@@ -143,8 +153,8 @@ export interface MountInfo {
   endpoint: SshEndpoint;
   /** Export path or locator token */
   exportLocator: string;
-  /** Temporary credential (SSH key or token) */
-  credential: string;
+  /** SSH credential (private key + certificate) */
+  credential: SshCredential;
   /** Optional mount parameters */
   mountOptions?: Record<string, string>;
 }
