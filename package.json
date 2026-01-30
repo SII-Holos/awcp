@@ -9,7 +9,7 @@
     "experiments/scenarios/*"
   ],
   "scripts": {
-    "build": "npm run build --workspaces",
+    "build": "npm run build -w @awcp/core && npm run build -w @awcp/transport-sshfs && npm run build -w @awcp/sdk && npm run build -w @awcp/mcp && npm run build --workspaces --if-present",
     "clean": "npm run clean --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
     "lint": "eslint packages/*/src/**/*.ts",
