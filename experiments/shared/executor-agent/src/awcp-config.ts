@@ -65,7 +65,7 @@ export const awcpConfig: ExecutorConfig = {
       console.log(`[AWCP] Task started: ${delegationId}, mount: ${mountPoint}`);
     },
     
-    onTaskComplete: (delegationId: string, summary: string) => {
+    onTaskComplete: (delegationId: string, _summary: string) => {
       console.log(`[AWCP] Task completed: ${delegationId}`);
     },
     
