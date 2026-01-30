@@ -10,7 +10,9 @@ packages/
 │   └── test/          # Unit tests (vitest)
 ├── sdk/               # @awcp/sdk - Delegator and Executor implementations
 │   └── test/          # Unit tests (vitest)
-└── transport-sshfs/   # @awcp/transport-sshfs - SSHFS transport adapter
+├── transport-sshfs/   # @awcp/transport-sshfs - SSHFS transport adapter
+│   └── test/          # Unit tests (vitest)
+└── transport-archive/ # @awcp/transport-archive - HTTP archive transport
     └── test/          # Unit tests (vitest)
 
 experiments/
@@ -45,6 +47,7 @@ cd experiments/scenarios/02-admission-test && ./run.sh
 @awcp/core              (no internal deps)
     ↑
 @awcp/transport-sshfs   (depends on core)
+@awcp/transport-archive (depends on core)
 
 @awcp/sdk               (depends on core, uses transport via injection)
 ```
@@ -72,13 +75,23 @@ cd experiments/scenarios/02-admission-test && ./run.sh
 | `config.ts` | Configuration with defaults |
 | `delegator-client.ts` | HTTP client to send DONE/ERROR back |
 
-### Transport (packages/transport-sshfs/)
+### Transport: SSHFS (packages/transport-sshfs/)
 
 | File | Purpose |
 |------|---------|
 | `sshfs-transport.ts` | TransportAdapter implementation |
 | `delegator/credential-manager.ts` | SSH key generation/revocation |
 | `executor/sshfs-client.ts` | SSHFS mount/unmount operations |
+
+### Transport: Archive (packages/transport-archive/)
+
+| File | Purpose |
+|------|---------|
+| `archive-transport.ts` | TransportAdapter implementation |
+| `delegator/archive-creator.ts` | Creates ZIP from export directory |
+| `delegator/archive-server.ts` | HTTP server for download/upload |
+| `executor/archive-client.ts` | HTTP client for transfers |
+| `executor/archive-extractor.ts` | Extracts ZIP to work directory |
 
 ## Protocol Flow
 
@@ -165,7 +178,8 @@ npm test  # Runs all package tests
 Test locations:
 - `packages/core/test/` - State machine, message types
 - `packages/sdk/test/` - Admission, config, services
-- `packages/transport-sshfs/test/` - Credential manager
+- `packages/transport-sshfs/test/` - Credential manager, SSHFS client
+- `packages/transport-archive/test/` - Archive creator, server, transport
 
 ### Integration Tests
 

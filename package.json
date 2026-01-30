@@ -9,9 +9,9 @@
     "experiments/scenarios/*"
   ],
   "scripts": {
-    "build": "npm run build -w @awcp/core && npm run build -w @awcp/transport-sshfs && npm run build -w @awcp/sdk && npm run build -w @awcp/mcp && npm run build --workspaces --if-present",
+    "build": "npm run build -w @awcp/core && npm run build -w @awcp/transport-sshfs && npm run build -w @awcp/transport-archive && npm run build -w @awcp/sdk && npm run build -w @awcp/mcp && npm run build --workspaces --if-present",
     "clean": "npm run clean --workspaces --if-present",
-    "test": "npm run test -w @awcp/core -w @awcp/transport-sshfs -w @awcp/sdk -w @awcp/mcp",
+    "test": "npm run test -w @awcp/core -w @awcp/transport-sshfs -w @awcp/transport-archive -w @awcp/sdk -w @awcp/mcp",
     "lint": "eslint packages/*/src/**/*.ts",
     "typecheck": "tsc --build --noEmit"
   },
