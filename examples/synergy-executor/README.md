@@ -53,10 +53,10 @@ SCENARIO_DIR=$(pwd) npx tsx src/agent.ts
 
 | Endpoint | URL | Description |
 |----------|-----|-------------|
-| Agent Card | `http://localhost:4001/.well-known/agent-card.json` | A2A discovery |
-| A2A | `http://localhost:4001/a2a` | JSON-RPC endpoint |
-| AWCP | `http://localhost:4001/awcp` | Workspace delegation |
-| Health | `http://localhost:4001/health` | Health check |
+| Agent Card | `http://localhost:10200/.well-known/agent-card.json` | A2A discovery |
+| A2A | `http://localhost:10200/a2a` | JSON-RPC endpoint |
+| AWCP | `http://localhost:10200/awcp` | Workspace delegation |
+| Health | `http://localhost:10200/health` | Health check |
 
 ## Configuration
 
@@ -64,7 +64,8 @@ Environment variables:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `PORT` | `4001` | Executor agent port |
+| `PORT` | `10200` | Executor agent port |
+| `AGENT_URL` | `http://localhost:${PORT}` | Public URL for Agent Card (set this for public deployment) |
 | `SYNERGY_URL` | `http://localhost:4096` | Synergy server URL |
 | `AWCP_TRANSPORT` | `archive` | Transport type (`archive` or `sshfs`) |
 | `SCENARIO_DIR` | `./` | Directory for workdir/temp/logs |

@@ -27,6 +27,7 @@ const GREEN = '\x1b[32m';
 const RED = '\x1b[31m';
 const BLUE = '\x1b[34m';
 const YELLOW = '\x1b[33m';
+const CYAN = '\x1b[36m';
 const NC = '\x1b[0m';
 
 interface TestResult {
@@ -54,6 +55,16 @@ function log(color: string, prefix: string, message: string) {
 function getTextContent(result: ToolResult): string | undefined {
   const textContent = result.content.find((c): c is TextContent => c.type === 'text');
   return textContent?.text;
+}
+
+function generateTaskContext() {
+  const now = new Date();
+  const timestamp = now.toISOString();
+  const randomId = Math.floor(Math.random() * 10000).toString().padStart(4, '0');
+  const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+  const dayOfWeek = days[now.getDay()] ?? 'Unknown';
+  
+  return { timestamp, randomId, dayOfWeek };
 }
 
 async function main() {
@@ -93,14 +104,11 @@ async function main() {
     await client.connect(transport);
     log(GREEN, '✓', 'MCP client connected');
 
-    // Test 1: Verify tools are available
+    // Test 1: Verify tools are available and check Agent Card injection
     await testListTools(client);
 
-    // Test 2: Simple file modification task
-    await testSimpleFileTask(client);
-
-    // Test 3: More complex coding task (if time permits)
-    // await testCodeModificationTask(client);
+    // Test 2: Dynamic file modification task
+    await testDynamicFileTask(client);
 
   } finally {
     await client.close();
@@ -112,7 +120,7 @@ async function main() {
 }
 
 async function testListTools(client: Client) {
-  const testName = 'List MCP tools';
+  const testName = 'List MCP tools & verify Agent Card injection';
   log(BLUE, '\n[TEST]', testName);
 
   try {
@@ -128,12 +136,39 @@ async function testListTools(client: Client) {
       throw new Error(`Missing tools: ${missingTools.join(', ')}`);
     }
 
-    // Check for peer info in delegate description
+    // Print full delegate tool description to verify agent card injection
     const delegateTool = tools.find((t) => t.name === 'delegate');
     const description = delegateTool?.description || '';
     
-    if (!description.includes(EXECUTOR_BASE_URL)) {
-      log(YELLOW, '!', `Peer URL not found in description (expected: ${EXECUTOR_BASE_URL})`);
+    console.log('');
+    console.log(`  ${CYAN}┌─────────────────────────────────────────────────────────────${NC}`);
+    console.log(`  ${CYAN}│ DELEGATE TOOL DESCRIPTION (with injected Agent Card info)${NC}`);
+    console.log(`  ${CYAN}├─────────────────────────────────────────────────────────────${NC}`);
+    for (const line of description.split('\n')) {
+      console.log(`  ${CYAN}│${NC} ${line}`);
+    }
+    console.log(`  ${CYAN}└─────────────────────────────────────────────────────────────${NC}`);
+    console.log('');
+
+    // Verify agent card info was injected
+    const hasAgentName = description.includes('Holos-Synergy');
+    const hasPeerUrl = description.includes(EXECUTOR_BASE_URL);
+    const hasSkills = description.toLowerCase().includes('skill');
+    const hasCapabilities = description.toLowerCase().includes('implement') || 
+                           description.toLowerCase().includes('refactor') ||
+                           description.toLowerCase().includes('debug');
+    
+    console.log('  Agent Card injection check:');
+    console.log(`    - Agent name "Holos-Synergy": ${hasAgentName ? GREEN + '✓' : RED + '✗'}${NC}`);
+    console.log(`    - Peer URL (${EXECUTOR_BASE_URL}): ${hasPeerUrl ? GREEN + '✓' : RED + '✗'}${NC}`);
+    console.log(`    - Skills info: ${hasSkills ? GREEN + '✓' : RED + '✗'}${NC}`);
+    console.log(`    - Capabilities: ${hasCapabilities ? GREEN + '✓' : RED + '✗'}${NC}`);
+    console.log('');
+
+    if (hasAgentName && hasPeerUrl) {
+      log(GREEN, '✓', 'Agent Card info successfully injected into delegate tool');
+    } else {
+      log(YELLOW, '!', 'Some Agent Card info may be missing from delegate tool');
     }
 
     log(GREEN, '✓', 'All expected tools found');
@@ -145,26 +180,61 @@ async function testListTools(client: Client) {
   }
 }
 
-async function testSimpleFileTask(client: Client) {
-  const testName = 'Simple file modification via Synergy';
+async function testDynamicFileTask(client: Client) {
+  const testName = 'Dynamic file modification via Synergy';
   log(BLUE, '\n[TEST]', testName);
 
   const workspacePath = resolve(SCENARIO_DIR, 'workspace');
   const helloFilePath = resolve(workspacePath, 'hello.txt');
   
+  // Generate dynamic context for this run
+  const { timestamp, randomId, dayOfWeek } = generateTaskContext();
+  
+  console.log(`  Task context:`);
+  console.log(`    - Timestamp: ${timestamp}`);
+  console.log(`    - Random ID: ${randomId}`);
+  console.log(`    - Day: ${dayOfWeek}`);
+  console.log('');
+
   // Read original content
   const originalContent = readFileSync(helloFilePath, 'utf-8');
   console.log(`  Original hello.txt: "${originalContent.trim()}"`);
 
   try {
-    log(YELLOW, '  →', 'Calling delegate tool with Synergy task...');
+    log(YELLOW, '  →', 'Calling delegate tool with dynamic Synergy task...');
 
-    // Give Synergy a simple but meaningful task
+    // Create a more interesting, dynamic task
+    const taskDescription = `Update hello.txt with timestamp and greeting (ID: ${randomId})`;
+    const taskPrompt = `
+Please modify the file hello.txt with the following requirements:
+
+1. Keep the original first line "Hello, World!"
+2. Add a blank line after it
+3. Add these new lines:
+   - "--- Synergy Collaboration Log ---"
+   - "Timestamp: ${timestamp}"
+   - "Task ID: ${randomId}"
+   - "Day: ${dayOfWeek}"
+   - A friendly greeting that mentions it's ${dayOfWeek}
+   - "--- End of Log ---"
+
+Make the greeting creative and unique. The file should look professional.
+`.trim();
+
+    console.log('');
+    console.log(`  ${CYAN}Task Description:${NC} ${taskDescription}`);
+    console.log(`  ${CYAN}Task Prompt:${NC}`);
+    for (const line of taskPrompt.split('\n').slice(0, 5)) {
+      console.log(`    ${line}`);
+    }
+    console.log('    ...');
+    console.log('');
+
     const result = (await client.callTool({
       name: 'delegate',
       arguments: {
-        description: 'Modify hello.txt to add a greeting',
-        prompt: `Please modify the file hello.txt to add a new line that says "Greetings from Synergy!" at the end of the file. Keep the original content.`,
+        description: taskDescription,
+        prompt: taskPrompt,
         workspace_dir: workspacePath,
         peer_url: EXECUTOR_URL,
         background: false,
@@ -187,14 +257,32 @@ async function testSimpleFileTask(client: Client) {
 
     // Verify file was modified
     const newContent = readFileSync(helloFilePath, 'utf-8');
-    console.log(`  New hello.txt: "${newContent.trim()}"`);
+    console.log('');
+    console.log(`  ${CYAN}New hello.txt content:${NC}`);
+    console.log('  ┌─────────────────────────────────────────');
+    for (const line of newContent.split('\n')) {
+      console.log(`  │ ${line}`);
+    }
+    console.log('  └─────────────────────────────────────────');
+    console.log('');
 
-    // Check if the file was actually modified
-    if (newContent === originalContent) {
-      log(YELLOW, '!', 'File was not modified (Synergy may not have made changes)');
-      // This is okay - Synergy might interpret the task differently
+    // Verify the dynamic content was added
+    const hasTimestamp = newContent.includes(timestamp) || newContent.includes('Timestamp');
+    const hasTaskId = newContent.includes(randomId) || newContent.includes('Task ID');
+    const hasDay = newContent.includes(dayOfWeek);
+    const wasModified = newContent !== originalContent;
+
+    console.log('  Content verification:');
+    console.log(`    - File modified: ${wasModified ? GREEN + '✓' : RED + '✗'}${NC}`);
+    console.log(`    - Has timestamp info: ${hasTimestamp ? GREEN + '✓' : YELLOW + '~'}${NC}`);
+    console.log(`    - Has task ID: ${hasTaskId ? GREEN + '✓' : YELLOW + '~'}${NC}`);
+    console.log(`    - Has day of week: ${hasDay ? GREEN + '✓' : YELLOW + '~'}${NC}`);
+    console.log('');
+
+    if (!wasModified) {
+      log(YELLOW, '!', 'File was not modified (Synergy may have interpreted the task differently)');
     } else {
-      log(GREEN, '✓', 'File was modified by Synergy');
+      log(GREEN, '✓', 'File was successfully modified by Synergy');
     }
 
     log(GREEN, '✓', 'Delegation completed successfully');
