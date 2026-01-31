@@ -110,8 +110,8 @@ export class SynergyExecutor implements AgentExecutor {
     const textParts: string[] = [];
 
     for (const part of result.parts) {
-      if (part.type === 'text' && part.content) {
-        textParts.push(part.content);
+      if (part.type === 'text' && part.text) {
+        textParts.push(part.text);
       } else if (part.type === 'tool-invocation' && part.toolName) {
         // Summarize tool calls
         textParts.push(`[Tool: ${part.toolName}]`);
