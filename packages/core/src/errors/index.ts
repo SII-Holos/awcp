@@ -5,6 +5,8 @@ export const ErrorCodes = {
   DECLINED: 'DECLINED',
   DEP_MISSING: 'DEP_MISSING',
   WORKSPACE_TOO_LARGE: 'WORKSPACE_TOO_LARGE',
+  WORKSPACE_NOT_FOUND: 'WORKSPACE_NOT_FOUND',
+  WORKSPACE_INVALID: 'WORKSPACE_INVALID',
   WORKDIR_DENIED: 'WORKDIR_DENIED',
   START_EXPIRED: 'START_EXPIRED',
   EXPIRED: 'EXPIRED',
@@ -88,6 +90,36 @@ export class WorkspaceTooLargeError extends AwcpError {
       delegationId,
     );
     this.name = 'WorkspaceTooLargeError';
+  }
+}
+
+/**
+ * Error: Workspace directory not found
+ */
+export class WorkspaceNotFoundError extends AwcpError {
+  constructor(workspacePath: string, hint?: string, delegationId?: string) {
+    super(
+      ErrorCodes.WORKSPACE_NOT_FOUND,
+      `Workspace directory not found: ${workspacePath}`,
+      hint ?? 'Verify the workspace path is correct',
+      delegationId,
+    );
+    this.name = 'WorkspaceNotFoundError';
+  }
+}
+
+/**
+ * Error: Invalid workspace (e.g., path is not a directory)
+ */
+export class WorkspaceInvalidError extends AwcpError {
+  constructor(workspacePath: string, reason: string, hint?: string, delegationId?: string) {
+    super(
+      ErrorCodes.WORKSPACE_INVALID,
+      `Invalid workspace: ${reason} (${workspacePath})`,
+      hint ?? 'Provide a valid directory path',
+      delegationId,
+    );
+    this.name = 'WorkspaceInvalidError';
   }
 }
 

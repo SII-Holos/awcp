@@ -27,6 +27,8 @@ import {
   PROTOCOL_VERSION,
   AwcpError,
   WorkspaceTooLargeError,
+  WorkspaceNotFoundError,
+  WorkspaceInvalidError,
 } from '@awcp/core';
 import { type DelegatorConfig, type ResolvedDelegatorConfig, resolveDelegatorConfig } from './config.js';
 import { AdmissionController } from './admission.js';
@@ -88,7 +90,10 @@ export class DelegatorService {
   async delegate(params: DelegateParams): Promise<string> {
     const delegationId = randomUUID();
 
-    const admissionResult = await this.admissionController.check(params.localDir);
+    // Validate and normalize localDir
+    const localDir = await this.validateAndNormalizePath(params.localDir, delegationId);
+
+    const admissionResult = await this.admissionController.check(localDir);
     if (!admissionResult.allowed) {
       throw new WorkspaceTooLargeError(
         admissionResult.stats ?? {},
@@ -103,12 +108,12 @@ export class DelegatorService {
     const delegation = createDelegation({
       id: delegationId,
       peerUrl: params.executorUrl,
-      localDir: params.localDir,
+      localDir: localDir,
       task: params.task,
       leaseConfig: { ttlSeconds, accessMode },
     });
 
-    const exportPath = await this.exportManager.allocate(delegationId, params.localDir);
+    const exportPath = await this.exportManager.allocate(delegationId, localDir);
     delegation.exportPath = exportPath;
 
     const stateMachine = new DelegationStateMachine();
@@ -437,5 +442,45 @@ export class DelegatorService {
     await this.transport.cleanup(delegationId);
     await this.exportManager.release(delegationId);
     this.executorUrls.delete(delegationId);
+  }
+
+  /**
+   * Validate and normalize the workspace path.
+   * - Converts relative paths to absolute paths
+   * - Verifies the directory exists
+   * - Returns the normalized absolute path
+   */
+  private async validateAndNormalizePath(localDir: string, delegationId: string): Promise<string> {
+    // Normalize to absolute path
+    const absolutePath = path.isAbsolute(localDir)
+      ? localDir
+      : path.resolve(process.cwd(), localDir);
+
+    // Verify directory exists
+    try {
+      const stats = await fs.stat(absolutePath);
+      if (!stats.isDirectory()) {
+        throw new WorkspaceInvalidError(
+          absolutePath,
+          'path is not a directory',
+          'Provide a valid directory path',
+          delegationId
+        );
+      }
+    } catch (error) {
+      if (error instanceof WorkspaceInvalidError) {
+        throw error;
+      }
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+        throw new WorkspaceNotFoundError(
+          absolutePath,
+          'Verify the workspace path is correct',
+          delegationId
+        );
+      }
+      throw error;
+    }
+
+    return absolutePath;
   }
 }

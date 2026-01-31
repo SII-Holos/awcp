@@ -23,7 +23,11 @@ export const delegateSchema = z.object({
     .describe('Full task instructions including goals and constraints'),
   workspace_dir: z
     .string()
-    .describe('Local directory path to delegate to the Executor'),
+    .describe('Local directory path to delegate to the Executor (absolute or relative)'),
+  cwd: z
+    .string()
+    .optional()
+    .describe('Current working directory for resolving relative workspace_dir paths. If not provided, relative paths are resolved against the daemon process cwd.'),
   peer_url: z
     .string()
     .url()
