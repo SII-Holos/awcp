@@ -36,11 +36,10 @@ export function executorHandler(options: ExecutorHandlerOptions): Router {
     try {
       const message = req.body;
 
+      // START: wait for delegation setup, then respond (task runs async)
       if (message.type === 'START') {
+        await service.handleMessage(message);
         res.json({ ok: true });
-        service.handleMessage(message).catch((error) => {
-          console.error('[AWCP Executor] Error handling START:', error);
-        });
         return;
       }
 

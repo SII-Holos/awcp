@@ -78,7 +78,7 @@ export class ExecutorService {
       case 'INVITE':
         return this.handleInvite(message);
       case 'START':
-        this.handleStart(message);
+        await this.handleStart(message);
         return null;
       case 'ERROR':
         await this.handleError(message);
@@ -213,7 +213,7 @@ export class ExecutorService {
     return acceptMessage;
   }
 
-  private handleStart(start: StartMessage): void {
+  private async handleStart(start: StartMessage): Promise<void> {
     const { delegationId } = start;
 
     const pending = this.pendingInvitations.get(delegationId);
@@ -235,6 +235,7 @@ export class ExecutorService {
       eventEmitter,
     });
 
+    // Task execution runs async - don't await
     this.executeTask(delegationId, start, workPath, pending.invite.task, eventEmitter);
   }
 

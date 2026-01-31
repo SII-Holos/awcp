@@ -38,13 +38,17 @@ cd experiments/scenarios/01-local-basic && ./run.sh
 Delegator                              Executor
     │ ─── INVITE (sync) ─────────────► │
     │ ◄── ACCEPT ──────────────────────│
-    │ ─── START (async) ──────────────►│  → setup → execute → teardown
-    │ ◄── DONE/ERROR (callback) ───────│
+    │ ─── START ──────────────────────►│  → setup delegation
+    │ ◄── {ok:true} ───────────────────│
+    │ ─── GET /tasks/:id/events (SSE) ►│  → execute task
+    │ ◄── event: status ───────────────│
+    │ ◄── event: done {resultBase64} ──│  → teardown
 ```
 
 - INVITE/ACCEPT: synchronous request/response
-- START: returns `{ok:true}` immediately, task runs async
-- DONE/ERROR: sent to `X-AWCP-Callback-URL` header
+- START: waits for delegation setup, returns `{ok:true}`, task runs async
+- Task events: Delegator subscribes via SSE, receives status/done/error events
+- Archive transport: result returned as base64 in done event, applied to original workspace
 
 ## State Machine
 
@@ -59,7 +63,7 @@ All errors extend `AwcpError` with `code` and `hint` fields:
 ```typescript
 throw new WorkspaceTooLargeError(stats, hint, delegationId);
 // Available: DeclinedError, DependencyMissingError, WorkspaceTooLargeError,
-//   MountPointDeniedError, MountFailedError, TaskFailedError, LeaseExpiredError, AuthFailedError
+//   WorkDirDeniedError, SetupFailedError, TaskFailedError, LeaseExpiredError, AuthFailedError
 ```
 
 ## Admission Control

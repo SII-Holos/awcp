@@ -5,6 +5,9 @@
  */
 
 import { randomUUID } from 'node:crypto';
+import * as fs from 'node:fs/promises';
+import * as path from 'node:path';
+import * as os from 'node:os';
 import {
   type Delegation,
   type TaskSpec,
@@ -237,6 +240,11 @@ export class DelegatorService {
     }
 
     if (event.type === 'done') {
+      // Apply result back to workspace if present
+      if (event.resultBase64 && delegation.localDir) {
+        await this.applyResult(delegationId, delegation.localDir, event.resultBase64);
+      }
+
       const doneMessage: DoneMessage = {
         version: PROTOCOL_VERSION,
         type: 'DONE',
@@ -257,6 +265,37 @@ export class DelegatorService {
         hint: event.hint,
       };
       await this.handleError(errorMessage);
+    }
+  }
+
+  /**
+   * Apply result from Executor back to original workspace
+   */
+  private async applyResult(delegationId: string, localDir: string, resultBase64: string): Promise<void> {
+    try {
+      // Decode base64 to buffer
+      const buffer = Buffer.from(resultBase64, 'base64');
+      
+      // Write to temp file
+      const tempDir = path.join(os.tmpdir(), 'awcp-results');
+      await fs.mkdir(tempDir, { recursive: true });
+      const archivePath = path.join(tempDir, `${delegationId}-result.zip`);
+      await fs.writeFile(archivePath, buffer);
+
+      // Extract to localDir (overwriting existing files)
+      const { exec } = await import('node:child_process');
+      const { promisify } = await import('node:util');
+      const execAsync = promisify(exec);
+
+      // Use unzip to extract, overwriting existing files
+      await execAsync(`unzip -o "${archivePath}" -d "${localDir}"`);
+
+      // Cleanup temp file
+      await fs.unlink(archivePath).catch(() => {});
+
+      console.log(`[AWCP Delegator] Applied result to ${localDir}`);
+    } catch (error) {
+      console.error(`[AWCP Delegator] Failed to apply result for ${delegationId}:`, error);
     }
   }
 
