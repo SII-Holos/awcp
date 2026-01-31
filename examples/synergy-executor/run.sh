@@ -75,6 +75,12 @@ fi
 # Create directories
 mkdir -p workdir temp logs
 
+# Synergy configuration for fully automated execution
+# - permission: Allow all operations without asking, deny question tool
+# - interaction: Disable system-level interactions (agent switch, plan prompts)
+SYNERGY_CONFIG_CONTENT='{"permission":{"*":"allow","question":"deny"},"interaction":false}'
+export SYNERGY_CONFIG_CONTENT
+
 # Start Synergy server
 echo -e "\n${BLUE}Starting Synergy server on :${SYNERGY_PORT}...${NC}"
 synergy serve --port $SYNERGY_PORT > logs/synergy.log 2>&1 &
