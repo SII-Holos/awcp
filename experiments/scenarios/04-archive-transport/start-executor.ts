@@ -78,7 +78,7 @@ async function main() {
         autoAccept: true,
       },
       hooks: {
-        onTaskStart: (id, path) => console.log(`[Executor] Task started: ${id} at ${path}`),
+        onTaskStart: (ctx) => console.log(`[Executor] Task started: ${ctx.delegationId} at ${ctx.workPath}`),
         onTaskComplete: (id) => console.log(`[Executor] Task completed: ${id}`),
         onError: (id, err) => console.error(`[Executor] Error: ${id}`, err.message),
       },
