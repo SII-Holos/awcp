@@ -34,7 +34,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@awcp/core": "^0.0.1"
+    "@awcp/core": "*"
   },
   "keywords": [
     "awcp",
