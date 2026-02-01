@@ -1,0 +1,378 @@
+# Agent Workspace Collaboration Protocol (AWCP) v1 规范
+
+## 1. 概述 (Overview)
+
+### 1.1 协议简介
+
+Agent Workspace Collaboration Protocol (AWCP) 是一个面向大模型多智能体协作的工作空间委派协议。它使一个本地智能体（Host）能够将指定的本地目录（Workspace）以"近似远端智能体本地目录"的方式委派给远端智能体（Remote）协作完成任务，并在任务结束后自动回收访问权限与挂载资源。
+
+AWCP 采用 **A2A (Agent2Agent) 协议作为控制面**（发现、握手、任务状态与错误反馈），并采用**挂载式远程文件系统作为数据面**（实现远端智能体使用自身工具对目录的透明读写），通过**租约式（Lease-based）会话**、**导出视图目录（Export View）**、**远端挂载点回传**与**本地策略约束**，实现可控、可清理、可并发管理的多智能体远程协作。
+
+### 1.2 设计目标
+
+1.  **"像在自己电脑上工作"的体验**：远端智能体可使用其自身工具链（write/edit/各种 CLI）对 Host 指定目录进行读写，无需修改远端工具实现（通过挂载实现）。
+2.  **最小化本地 Agent 的认知负担**：Host 仅需通过简单的 MCP 工具发起委派，无需关心挂载细节。
+3.  **基于 A2A 的互操作**：利用标准 A2A 协议进行服务发现与信令交互。
+4.  **安全可控**：
+    *   **Remote 侧**：必须基于其本地策略选择挂载点（`mount_point`），避免 Host 指定危险路径。
+    *   **Host 侧**：不暴露真实路径，使用 Export View 进行隔离、审计与清理。
+5.  **资源可回收**：基于租约（Lease）的生命周期管理，确保任务结束或超时后资源被自动清理。
+
+
+## 2. 系统架构与角色 (Architecture & Components)
+
+### 2.1 核心术语与角色
+
+| 角色/术语 | 说明 |
+| :--- | :--- |
+| **Host (Delegator)** | **委派者**。拥有本地数据（Local Dir），发起协作邀请，并提供文件导出服务的 Agent。 |
+| **Remote (Executor)** | **执行者**。接收协作邀请，将 Host 的数据映射到自己本地（Work Directory），并使用自有工具执行任务的 Agent。 |
+| **Daemon** | 运行在 Host/Remote 后台的常驻服务，负责状态机管理、挂载管理、目录导出与清理。 |
+| **Workspace Dir** | Host 上希望被委派的逻辑范围（Scope）。可能是整个 Repo，也可能只是一个子目录。 |
+| **Export Directory** | Host 为特定会话创建的隔离目录，用于屏蔽真实路径并绑定权限。 |
+| **Work Directory** | Executor 本地的工作目录。对于 SSHFS 是挂载点，对于 Archive 是解压目录。 |
+| **Lease (租约)** | 一次协作会话的生命周期对象，包含 ID、TTL、访问模式等约束。 |
+
+### 2.2 核心模型：租约式委派 (Delegation Lease)
+
+AWCP 将一次协作视为一个 **Delegation Lease（委派租约）**：
+
+*   **唯一标识**：每个 Lease 拥有唯一的 `delegation_id`。
+*   **绑定关系**：绑定了 `peer_url` (Remote)、`local_dir` (Host数据)、`ttl` (时长) 与 `access_mode` (权限)。
+*   **双向确认**：
+    *   Host 发起意图（INVITE）。
+    *   Remote 确认并指定挂载点（ACCEPT）。
+    *   Host 正式授权（START）。
+*   **生命周期**：由 Daemon 维护状态机，确保在 DONE、ERROR 或 TTL 到期时执行清理。
+
+### 2.3 组件架构
+
+*   **AWCP Daemon**：核心组件。负责会话管理、凭证生成、文件系统导出/挂载操作。
+*   **A2A Extension**：通信层。在 A2A Server 中实现 AWCP 消息处理逻辑。
+*   **MCP Tools**：客户端层。为 Host Agent 提供 `delegate` 等工具接口。
+
+
+## 3. 协议交互流程 (Protocol Workflow)
+
+AWCP 定义了标准的四阶段握手流程：**INVITE → ACCEPT → START → DONE/ERROR**。
+
+在进入握手之前，Host Daemon 应先执行一轮**准入门禁（Admission Control / Preflight Checks）**：对即将导出的 Workspace 做快速预检（可扩展策略集合）。若发现明显不适合远程挂载的情况（例如目录体量过大、文件数量过多或存在超大单文件，可能导致带宽被瞬时打满），Host 应**直接拒绝本次委派**，并返回 `ERROR`（如 `code=WORKSPACE_TOO_LARGE`），提示调用方缩小 Scope（精减文件或选择更合适的子目录）后再发起协作。
+
+### 3.1 流程时序图
+
+```
+Host (Delegator)                    Remote (Executor)
+      |                                       |
+      | 1. INVITE (Task, Constraints)         |
+      |-------------------------------------->|
+      |                                       | 2. Policy Check & Env Check
+      | 3. ACCEPT (Work Dir, Profile)         | (Executor 决定工作目录与沙箱策略)
+      |<--------------------------------------|
+      |                                       |
+      | 4. Create Export Dir & Credential     |
+      | 5. START (Endpoint, Credential)       |
+      |-------------------------------------->|
+      |                                       | 6. Setup Workspace & Execute Task
+      |                                       | ... (Transport Connected) ...
+      | 7. DONE / ERROR (Summary)             |
+      |<--------------------------------------|
+      |                                       |
+      | 8. Cleanup (Teardown, Revoke Cred)    |
+```
+
+### 3.2 关键安全原则
+
+1.  **Executor 拥有工作目录最终决定权**：Host 不能指定 Executor 的工作目录。Executor 必须在 `ACCEPT` 中回传符合其本地安全策略的 `mount_point`。
+2.  **凭证后置下发**：Host 绝不在 `INVITE` 阶段发送有效凭证。只有收到 Executor 的 `ACCEPT` 确认后，才在 `START` 阶段下发临时凭证。
+3.  **本地沙箱约束**：Executor 在协作时应遵循其声明的 `sandbox_profile`（如禁止联网、限制 CWD），保护 Executor 本机安全。
+
+
+## 4. 消息定义 (Message Definitions)
+
+所有消息通过 A2A `message/send` 发送，内容包裹在 `data.awcp` 字段中。
+
+### 4.1 INVITE (Host → Remote)
+
+**语义**：Host 发起协作请求。仅包含任务描述与约束建议，**不含凭证**。用于 Remote 进行预检。
+
+**必选字段：**
+
+*   `version`: `"1"` (协议版本号)
+*   `type`: `"INVITE"`
+*   `delegation_id`: (本次协作唯一 ID)
+*   `task`:
+    *   `description`: (短描述，用于日志/列表)
+    *   `prompt`: (完整任务说明，含目标与禁忌)
+*   `lease`:
+    *   `ttl_seconds`: (Host 提议的时长)
+    *   `access_mode`: `"ro"` | `"rw"` (访问模式)
+*   `workspace`:
+    *   `export_name`: (逻辑名，非真实路径，如 `awcp/<id>`)
+*   `requirements` (Remote 预检项):
+    *   `transport`: `"sshfs"` (可选，默认 sshfs；Remote 可据此检查本机是否具备对应挂载能力)
+
+### 4.2 ACCEPT (Remote → Host)
+
+**语义**：Executor 接受请求。**回传工作目录**与**自我约束声明**。
+
+**必选字段：**
+
+*   `type`: `"ACCEPT"`
+*   `delegation_id`
+*   `executor_mount`:
+    *   `mount_point`: (Executor 本地绝对路径，由 Executor 策略决定)
+
+**建议字段：**
+
+*   `executor_constraints`:
+    *   `accepted_access_mode`: (实际接受的权限，可降级)
+    *   `max_ttl_seconds`: (Executor 允许的最大时长)
+    *   `sandbox_profile` (自我约束声明):
+        *   `cwd_only`: `true` | `false` (工具是否限制在工作目录内)
+        *   `allow_network`: `true` | `false`
+        *   `allow_exec`: `true` | `false`
+
+### 4.3 START (Host → Remote)
+
+**语义**：Host 确认并授权。**下发挂载信息与临时凭证**。Executor 收到后设置工作空间并开始任务。
+
+**必选字段：**
+
+*   `type`: `"START"`
+*   `delegation_id`
+*   `lease`:
+    *   `expires_at`: (租约过期绝对时间)
+    *   `access_mode`: (最终生效权限)
+*   `mount` (挂载所需信息):
+    *   `transport`: `"sshfs"` (v1 默认)
+    *   `endpoint`: `{ host, port, user }` (连接端点)
+    *   `export_locator`: (导出路径或 Locator Token)
+    *   `credential`: (临时 SSH Key 或 Token，与 TTL 绑定)
+    *   `mount_options`: (可选挂载参数建议)
+
+### 4.4 DONE (Remote → Host)
+
+**语义**：Executor 完成任务。提交总结与成果索引。
+
+**必选字段：**
+
+*   `type`: `"DONE"`
+*   `delegation_id`
+*   `final_summary`: (核心产出文本，说明做了什么、结果如何)
+
+**可选字段：**
+
+*   `highlights`: (建议 Host 查看的文件列表)
+*   `notes`: (执行过程备注)
+
+### 4.5 ERROR (任意方)
+
+**语义**：报告失败、拒绝或异常中止。
+
+**必选字段：**
+
+*   `type`: `"ERROR"`
+*   `delegation_id`
+*   `code`: (错误码，见下表)
+*   `message`: (人类可读描述)
+*   `hint`: (修复建议)
+
+**建议错误码集 (v1)**：
+
+| Code | 含义 |
+| :--- | :--- |
+| `DECLINED` | Remote 拒绝协作 |
+| `DEP_MISSING` | 缺少依赖 (如 sshfs) |
+| `WORKSPACE_TOO_LARGE` | Workspace 体量/文件数超限，不适合远程挂载协作 |
+| `MOUNTPOINT_DENIED` | 挂载点被策略拒绝 |
+| `START_EXPIRED` | START 前租约已失效 |
+| `EXPIRED` | 运行中租约到期/回收 |
+| `AUTH_FAILED` | 凭证无效 |
+| `MOUNT_FAILED` | 挂载连接失败 |
+| `TASK_FAILED` | 任务执行出错 |
+| `CANCELLED` | 用户或系统取消 |
+
+## 5. 数据面规范 (Data Plane Specification)
+
+数据面负责将 Host 的 Export Directory 透明映射到 Executor 的 Work Directory。v1 协议采用 **SSHFS** 作为默认标准传输方式，未来可扩展支持其他传输方式（如 Archive）。
+
+### 5.1 默认传输：SSHFS
+
+v1 协议中，默认 `transport` 为 `"sshfs"`。
+*   **Host 职责**：提供 SSH/SFTP 服务端点，支持基于 Key/Token 的临时认证。
+*   **Executor 职责**：使用 `sshfs` 客户端（基于 FUSE）挂载远程目录。
+
+### 5.2 常见问题与实现注意事项 (Implementation Notes)
+
+在落地 SSHFS 方案时，实现者需注意以下关键问题：
+
+1.  **网络可达性 (Connectivity)**
+    *   **要求**：Executor 必须能直接访问 Host 的 `endpoint.host:port`。
+    *   **痛点**：NAT、公司防火墙、入站端口封锁会导致 `MOUNT_FAILED`。
+    *   **对策**：Host 需确保端口开放；v2 可引入反向隧道（Reverse Tunnel）或中继（Relay）解决。
+
+2.  **依赖与环境**
+    *   Executor 必须预装 `sshfs` 及相应 FUSE 驱动（macOS/Windows/Linux 安装方式不同）。
+    *   缺失依赖应返回 `DEP_MISSING` 错误。
+
+3.  **性能与一致性**
+    *   SSHFS 对大量小文件读写与 Watcher（如 `tsc --watch`）性能较弱。
+    *   建议合理配置缓存参数（`cache=yes/no`）以平衡一致性与速度。
+
+4.  **符号链接 (Symlink) 风险**
+    *   Scope 内的 Symlink 若指向 Scope 外，可能导致 Executor 访问越界（取决于 Host 导出配置与客户端行为）。建议 Host 在导出层过滤或限制 Symlink。
+
+## 6. Host 侧实现规范 (Host Implementation)
+
+### 6.1 导出目录 (Export Directory)
+
+Host **不应直接暴露真实 Workspace 路径**，而应为每个 Delegation 创建隔离的 Export Directory。
+
+*   **推荐结构**：`/var/AWCP/exports/<delegation_id>/`
+    *   `workspace/` → 指向 `local_dir` 的隔离映射
+    *   `meta/` → 只读元数据 (Task, Logs)
+
+*   **推荐实现策略**：
+    1.  **Bind Mount (推荐)**：将 `local_dir` 绑定挂载到 export 目录。隔离性好，性能高。
+    2.  **Git Worktree (高级可选)**：若在 Git Repo 内，可创建临时 Worktree 导出。隔离性最强，支持并发修改，但复杂度高。
+    3.  **Symlink (开发测试用)**：简单但易发生路径逃逸，仅用于开发测试。
+
+### 6.2 准入门禁：预检与 Scope 适配 (Admission Control / Preflight Checks)
+
+由于数据面采用挂载式远程文件系统，一旦 Scope 下包含大量文件或超大文件，Executor 在挂载后产生的目录遍历、索引、搜索、依赖扫描等行为都可能触发**灾难性的带宽占用**。因此 Host Daemon 应在发送 `INVITE` 前执行准入门禁（可扩展策略集合）：
+
+*   **快速体量预检**：对 `local_dir` 做估算（如 `estimated_bytes` / `file_count` / `largest_file_bytes`）。超过策略阈值则拒绝。
+*   **失败即早返回**：无需进入握手阶段，更不应创建 Export Directory / Credential。
+*   **可操作的错误提示**：返回 `ERROR` 且 `code=WORKSPACE_TOO_LARGE`，并在 `hint` 中建议调用方缩小 Scope（选择更合适的子目录、移除数据集/缓存目录、使用稀疏导出等）。
+
+> 实现提示：体量预检不要求精确。只要能在可控时间内给出“明显不适合协作”的判断，就足以保护系统与网络。
+
+### 6.3 资源配额与限制 (Resource Quota)
+
+由于 `rw` 模式允许 Executor 写入，Host 面临磁盘压力风险。建议实现以下本地策略：
+
+*   **总量配额 (Total Quota)**：限制 Export Directory 的最大写入字节数（如 `max_total_bytes`）。
+*   **错误处理**：当 Executor 写入超限导致 `ENOSPC` 时，Executor 应捕获并返回 `TASK_FAILED` (含 Quota Exceeded 提示)。
+
+### 6.4 Git 审计增强 (Optional Git Audit)
+
+Host 可利用本地 Git 能力增强审计，**无需协议字段支持**。v1 推荐使用 **"Shadow Git" (影子仓库)** 模式以实现无侵入审计：
+
+*   **Shadow Git 模式**：
+    *   Daemon 在私有目录（如 `~/.awcp/shadows/`）维护一个指向 Workspace 的 Git 仓库（使用 `--git-dir` 和 `--work-tree` 参数）。
+    *   **优点**：不在用户目录下生成 `.git` 文件夹，完全无侵入。
+    *   **流程**：Delegation 开始前记录 Baseline Commit；结束后记录 Result Commit；通过 `git diff` 生成审计报告。
+*   **Scope 隔离审计**：即使 `workspace_dir` 只是 Repo 子目录，Host 也可用 `git -C <repo_root> diff -- <scope_path>` 生成变更报告。
+
+### 6.5 并发控制策略 (Concurrency Strategy)
+
+当多个 Delegation 试图访问同一物理目录时，为防止数据覆盖与冲突，Host Daemon 应实施以下并发策略：
+
+1.  **任务级互斥 (默认推荐)**：
+    *   **原理**：Daemon 维护目录级锁。同一时间只允许一个 `rw` 任务访问同一物理目录（Scope）。后续任务需排队等待。
+    *   **理由**：文件系统级锁不可靠，且无法约束 Executor 工具行为。
+
+2.  **Scope 隔离 (高并发推荐)**：
+    *   **原理**：Host 将大任务拆解为互不重叠的子目录 Scope（如前端/后端），为每个 Delegation 导出不同的子目录。
+    *   **理由**：物理上避开写冲突，允许真正的并行协作。
+
+> **注意**：v1 强烈不建议采用"乐观并发"（允许多人同时访问同一目录且无锁），这在文件系统层面极易导致更新丢失。
+
+### 6.6 Daemon API 接口参考 (Reference)
+
+为了支撑上层 MCP 工具与 SDK，Host Daemon 建议暴露以下核心 API（可通过 IPC/RPC/HTTP 实现）：
+
+1.  **Core Delegation**
+    *   `create_delegation(request)`: 接受委派请求，检查并发锁，初始化 Shadow Git，发送 `INVITE`，返回 `delegation_id`。
+    *   `handle_executor_message(msg)`: 处理来自 Executor 的 `ACCEPT/DONE/ERROR`，驱动状态机流转。
+
+2.  **State & Observability**
+    *   `get_status(id)`: 查询当前状态、进度与日志。
+    *   `wait_for_result(id, timeout)`: 阻塞等待直到任务结束（支持 Long Polling）。
+    *   `get_audit_report(id)`: 获取 Git Diff 统计与变更文件列表。
+
+3.  **Control**
+    *   `cancel_delegation(id)`: 强制中止任务，立即回收 Export Directory 与凭证，并向 Executor 发送取消请求（实现可用 A2A `tasks/cancel`，或发送 AWCP `ERROR` 且 `code=CANCELLED`）。
+    *   `prune_resources()`: 清理所有已过期的租约残留（Export Directories, Logs）。
+
+## 7. Executor 侧实现规范 (Executor Implementation)
+
+### 7.1 本地安全策略 (Local Policy)
+
+Executor Daemon 必须实施严格的本地策略，以**保护 Executor 本机文件系统不被覆盖或污染**：
+
+*   **工作目录根限制**：Daemon 应配置一个专用的根目录（如 `/AWCP/workspaces/`），并强制所有任务的工作目录必须位于该目录下，严禁使用系统敏感路径（如 `/home`, `/etc`）。
+*   **非空检查 (Safety Check)**：在设置工作空间前，必须检查目标目录是否为空。若目录非空（可能有残留文件或重要数据），必须拒绝以防止数据遮挡。
+
+### 7.2 沙箱与执行约束 (Sandbox Profile)
+
+Executor 在 `ACCEPT` 消息中回传 `sandbox_profile`，旨在进行**能力声明 (Capability Declaration)**，让 Host 提前知晓环境限制以避免任务失败：
+
+*   **CWD Only**：声明是否将工具操作限制在工作目录内（防止 Executor 意外读取本机其他文件）。
+*   **Network**：声明是否允许联网（Host 可据此判断是否派发需要下载依赖的任务）。
+*   **Exec**：声明是否允许执行命令（Host 可据此判断是只让 Executor 改代码，还是可以跑测试）。
+
+## 8. 集成与运行模型 (Integration & Runtime Model)
+
+本章描述 AWCP 如何集成到 Host Agent 的运行环境（Runtime）中，包括生命周期管理、服务发现以及面向 LLM 的工具接口。
+
+### 8.1 生命周期状态机 (Lifecycle State Machine)
+
+Daemon 负责维护每个 Delegation 的状态流转，确保资源正确分配与回收。
+
+```
+created → invited → accepted → started → running → completed
+                                    ↓           ↓
+                                  error ←───────┤
+                                    ↑           ↓
+                              cancelled ←── expired
+```
+
+### 8.2 服务发现 (Service Discovery)
+
+Host 主要通过 A2A Agent Card 确认 Remote **是否支持** AWCP 协议（能力识别）。
+
+具体的参数协商（如 TTL、Transport）建议推迟到 INVITE/ACCEPT 阶段进行，因此 Discovery 阶段的 `params` 是可选的，仅用于展示基础静态属性或作为"门禁卡"使用。
+
+**Extension 声明示例**：
+```json
+{
+  "uri": "https://awcp-protocol.org/v1",
+  "required": false
+  // params 字段可选，v1 阶段通常省略
+}
+```
+
+### 8.3 客户端工具接口 (MCP Tooling Interface)
+
+Host Agent（通常是 LLM）通过 MCP 工具与协议交互。这些工具是 **Daemon API 的上层封装**，其参数直接映射到协议消息字段。
+
+#### 1. `delegate` (发起协作)
+*   **映射关系**：调用此工具将触发 Daemon 创建 Lease 并发送 `INVITE` 消息。
+*   **参数映射**：
+    *   `description/prompt` → `INVITE.task`
+    *   `workspace_dir` → `INVITE.workspace.export_name` (用于创建 Export Directory 的逻辑名；实际导出目录由 Host 本地配置决定)
+    *   `peer_url` → 目标 A2A Agent
+*   **行为模式**：
+    *   **异步模式 (`background=true`)**：立即返回 `delegation_id`。LLM 需后续轮询结果。适用于长任务。
+    *   **同步模式 (`background=false`)**：工具挂起，直到状态变为 `completed/error` 才返回结果。适用于短任务。
+
+#### 2. `delegate_output` (获取结果)
+*   **映射关系**：查询 Daemon 的状态存储。若任务完成，返回 `DONE.final_summary`。
+*   **用途**：用于异步模式下的轮询，或在任务失败后查看详细日志。
+
+#### 3. `delegate_cancel` (取消)
+*   **映射关系**：触发 Daemon 的 `cancel_delegation` 流程（向 Executor 发送取消请求 + 清理工作空间/导出资源）。
+
+---
+
+## 9. 已知局限与 v2 方向 (Limitations & Future Roadmap)
+
+v1 协议聚焦于“可用的最小闭环”，以下问题留待后续版本解决：
+
+| 局限 | v2 可能方向 |
+| :--- | :--- |
+| **网络可达性** | v1 依赖直连；v2 计划引入 Relay / Reverse Tunnel 解决 NAT 问题。 |
+| **细粒度权限** | v1 仅支持 ro/rw；v2 可探索基于 FUSE 的细粒度 ACL（如禁止 delete）。 |
+| **并发冲突** | v1 建议互斥；v2 可引入基于 Git Worktree 的分支合并策略或 CRDT。 |
+| **身份互信** | v1 依赖人工配置 Peer；v2 可引入去中心化身份 (DID) 与签名验证。 |
