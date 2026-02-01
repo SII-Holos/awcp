@@ -1,6 +1,6 @@
 {
   "name": "@awcp/sdk",
-  "version": "0.0.7",
+  "version": "0.0.8",
   "description": "AWCP SDK - Delegator and Executor Daemon implementations",
   "type": "module",
   "main": "./dist/index.js",
@@ -45,7 +45,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@awcp/core": "^0.0.7",
+    "@awcp/core": "^0.0.8",
     "@a2a-js/sdk": "^0.3.5"
   },
   "peerDependencies": {
