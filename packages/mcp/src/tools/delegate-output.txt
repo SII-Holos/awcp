@@ -1,22 +1,46 @@
-Retrieve output from a background delegation.
+Retrieve status or results from a background delegation.
+
+This is your primary tool for getting results after launching `delegate(background: true)`.
+
+## When to use
+
+- **Check progress**: See if a delegation is still running or has completed
+- **Retrieve results**: Get the final output once the task is done
+- **Wait for completion**: Block until the delegation finishes (use with `block: true`)
 
 ## Parameters
-- **delegation_id** (required): Delegation ID from the background delegation launch
-- **block** (optional): Wait for completion if still running
-- **timeout** (optional): Maximum seconds to wait (default: 60)
+- **delegation_id** (required): The ID returned from `delegate(background: true)`
+- **block** (optional): If true, waits for the delegation to complete before returning
+- **timeout** (optional): Maximum seconds to wait when blocking (default: 60)
 
-## Usage
-After launching a background delegation:
+## Recommended usage
+
+After launching background delegations and completing other work, use `block: true` to wait for results:
+
 ```
-delegate(background: true, ...) → "Delegation ID: dlg_abc123..."
+# Earlier: launched delegation
+delegate(background: true, ...) → "dlg_abc123"
+
+# Now: ready for the result
+delegate_output(delegation_id: "dlg_abc123", block: true, timeout: 300)
 ```
 
-Check or retrieve results:
+For long-running tasks, increase the timeout accordingly.
+
+## Examples
+
+### Wait for result (most common)
+```
+delegate_output(delegation_id: "dlg_abc123", block: true, timeout: 120)
+```
+
+### Quick status check (non-blocking)
 ```
 delegate_output(delegation_id: "dlg_abc123")
 ```
 
-Wait for completion:
+### Collect multiple results
 ```
-delegate_output(delegation_id: "dlg_abc123", block: true, timeout: 120)
+delegate_output(delegation_id: "dlg_1", block: true)
+delegate_output(delegation_id: "dlg_2", block: true)
 ```

@@ -1,21 +1,36 @@
-Delegate a workspace to a remote Executor for collaborative task execution.
+Delegate a workspace to a remote Executor for task execution.
 
-## When to use
+Delegation enables **parallel execution** — while the Executor works on one task, you can continue with other work or launch more delegations. This dramatically improves throughput compared to doing everything sequentially.
 
-Use delegation when:
-- Task requires a different environment or specialized toolset
-- You want to parallelize work across multiple agents
-- The remote agent has capabilities you lack (e.g., browser, GPU, specific SDKs)
+## Why delegate
 
-Do NOT use when:
-- Task is trivial and can be done locally
-- You need real-time back-and-forth interaction during execution
+- **Parallelism**: Run multiple tasks simultaneously instead of one-by-one
+- **Depth**: Executor can focus deeply on one task while you handle others
+- **Specialization**: Remote agents may have different tools, environments, or expertise
+- **Efficiency**: Offload substantial work and stay productive
+
+Consider delegating any task that would take significant time — tests, refactoring, code review, implementation of independent features, documentation, etc.
+
+## When NOT to delegate
+
+- Task requires real-time back-and-forth with the user
 
 ## Background mode
 
-**Prefer background=true by default.** This lets you launch multiple delegations in parallel and continue working.
+**Always prefer background=true.** This returns immediately with a delegation_id, letting you:
+- Launch multiple delegations in parallel
+- Continue with other work while waiting
+- Retrieve results later with `delegate_output`
 
-Use background=false only when you cannot proceed without the result.
+Use background=false **only** when you have nothing else to do and must wait for this result.
+
+## Typical workflow
+
+1. Launch delegation with `background: true`
+2. Continue with other independent work (local tasks, more delegations, etc.)
+3. When ready for results, call `delegate_output(delegation_id, block: true, timeout: ...)`
+
+This pattern maximizes parallelism and avoids idle waiting.
 
 ## Writing effective prompts
 
@@ -29,18 +44,23 @@ Structure your prompt with:
 
 ## Examples
 
-### Parallel tasks
+### Launch and continue working
 ```
-delegate(background: true, description: "Fix linting errors", prompt: "...", workspace_dir: "/project", peer_url: "...")
-delegate(background: true, description: "Add unit tests", prompt: "...", workspace_dir: "/project", peer_url: "...")
-```
-
-### Synchronous (when result needed immediately)
-```
-delegate(background: false, description: "Generate config", prompt: "Create tsconfig.json for...", workspace_dir: "/project", peer_url: "...")
+delegate(background: true, description: "Add unit tests", ...) → delegation_id: "dlg_abc"
+# ... do other work locally ...
+delegate_output(delegation_id: "dlg_abc", block: true, timeout: 300)
 ```
 
-### Read-only analysis
+### Parallel delegations
 ```
-delegate(description: "Code review", prompt: "Review the code for security issues...", workspace_dir: "/project", peer_url: "...", access_mode: "ro")
+delegate(background: true, description: "Fix linting errors", ...) → "dlg_1"
+delegate(background: true, description: "Add unit tests", ...) → "dlg_2"
+# ... do other work ...
+delegate_output(delegation_id: "dlg_1", block: true)
+delegate_output(delegation_id: "dlg_2", block: true)
+```
+
+### Synchronous (only when nothing else to do)
+```
+delegate(background: false, description: "Generate config", ...)
 ```
