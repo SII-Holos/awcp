@@ -1,6 +1,6 @@
 {
   "name": "@awcp/core",
-  "version": "0.0.8",
+  "version": "0.0.9",
   "description": "AWCP Protocol Core - Types, State Machine, and Error Definitions",
   "type": "module",
   "main": "./dist/index.js",
