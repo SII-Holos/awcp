@@ -4,7 +4,7 @@
  * Uses Archive transport by default (HTTP-based, no SSHFS required).
  */
 
-import type { ExecutorConfig } from '@awcp/sdk';
+import type { ExecutorConfig, TaskStartContext } from '@awcp/sdk';
 import type { InviteMessage, TransportAdapter } from '@awcp/core';
 import { SshfsTransport } from '@awcp/transport-sshfs';
 import { ArchiveTransport } from '@awcp/transport-archive';
@@ -37,12 +37,12 @@ export const awcpConfig: ExecutorConfig = {
   transport: createTransport(),
   sandbox: {
     cwdOnly: true,
-    allowNetwork: true,  // Synergy may need network for AI API calls
-    allowExec: true,     // Synergy may run commands
+    allowNetwork: true,
+    allowExec: true,
   },
   policy: {
     maxConcurrentDelegations: 3,
-    maxTtlSeconds: 7200,  // 2 hours for longer coding tasks
+    maxTtlSeconds: 7200,
     autoAccept: false,
   },
   hooks: {
@@ -53,9 +53,10 @@ export const awcpConfig: ExecutorConfig = {
       return true;
     },
 
-    onTaskStart: (delegationId: string, workPath: string) => {
-      console.log(`[AWCP] Task started: ${delegationId}`);
-      console.log(`[AWCP] Workspace: ${workPath}`);
+    onTaskStart: (ctx: TaskStartContext) => {
+      console.log(`[AWCP] Task started: ${ctx.delegationId}`);
+      console.log(`[AWCP] Workspace: ${ctx.workPath}`);
+      console.log(`[AWCP] Lease expires: ${ctx.lease.expiresAt}`);
     },
 
     onTaskComplete: (delegationId: string, summary: string) => {

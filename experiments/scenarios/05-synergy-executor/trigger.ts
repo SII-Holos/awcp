@@ -84,6 +84,7 @@ async function main() {
 
   const exportsDir = resolve(SCENARIO_DIR, 'exports');
   const tempDir = resolve(SCENARIO_DIR, 'temp');
+  const logFile = resolve(SCENARIO_DIR, 'logs/daemon.log');
 
   const transport = new StdioClientTransport({
     command: 'node',
@@ -92,6 +93,7 @@ async function main() {
       '--peers', EXECUTOR_BASE_URL,
       '--exports-dir', exportsDir,
       '--temp-dir', tempDir,
+      '--log-file', logFile,
     ],
   });
 

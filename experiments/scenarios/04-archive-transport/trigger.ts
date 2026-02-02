@@ -40,7 +40,9 @@ async function main() {
   try {
     const result = await client.delegate({
       executorUrl: EXECUTOR_URL,
-      localDir: workspacePath,
+      environment: {
+        resources: [{ name: 'workspace', type: 'fs', source: workspacePath, mode: 'rw' }],
+      },
       task: {
         description: 'Modify hello.txt via Archive transport',
         prompt: `append hello.txt [Archive Transport] Modified at ${timestamp}`,

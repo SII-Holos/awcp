@@ -4,7 +4,7 @@
  * Supports both SSHFS and Archive transports via AWCP_TRANSPORT env var.
  */
 
-import type { ExecutorConfig } from '@awcp/sdk';
+import type { ExecutorConfig, TaskStartContext } from '@awcp/sdk';
 import type { InviteMessage, TransportAdapter } from '@awcp/core';
 import { SshfsTransport } from '@awcp/transport-sshfs';
 import { ArchiveTransport } from '@awcp/transport-archive';
@@ -85,8 +85,8 @@ export const awcpConfig: ExecutorConfig = {
       return true;
     },
     
-    onTaskStart: (delegationId: string, workPath: string) => {
-      console.log(`[AWCP] Task started: ${delegationId}, path: ${workPath}`);
+    onTaskStart: (ctx: TaskStartContext) => {
+      console.log(`[AWCP] Task started: ${ctx.delegationId}, path: ${ctx.workPath}`);
     },
     
     onTaskComplete: (delegationId: string, _summary: string) => {

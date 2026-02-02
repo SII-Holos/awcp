@@ -1,0 +1,19 @@
+{
+  "name": "@awcp-experiments/06-openclaw-executor",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "description": "OpenClaw Executor integration experiment",
+  "scripts": {
+    "build": "echo 'No build needed - using tsx'",
+    "trigger": "npx tsx trigger.ts",
+    "clean": "./cleanup.sh"
+  },
+  "dependencies": {
+    "@awcp/sdk": "*",
+    "@modelcontextprotocol/sdk": "^1.0.4"
+  },
+  "devDependencies": {
+    "tsx": "^4.7.0"
+  }
+}

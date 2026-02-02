@@ -6,11 +6,21 @@ import type { AwcpMessage, AcceptMessage, ErrorMessage, TaskEvent } from '@awcp/
 
 export type InviteResponse = AcceptMessage | ErrorMessage;
 
+export interface ExecutorClientOptions {
+  timeout?: number;
+  sseMaxRetries?: number;
+  sseRetryDelayMs?: number;
+}
+
 export class ExecutorClient {
   private timeout: number;
+  private sseMaxRetries: number;
+  private sseRetryDelayMs: number;
 
-  constructor(options?: { timeout?: number }) {
+  constructor(options?: ExecutorClientOptions) {
     this.timeout = options?.timeout ?? 30000;
+    this.sseMaxRetries = options?.sseMaxRetries ?? 3;
+    this.sseRetryDelayMs = options?.sseRetryDelayMs ?? 2000;
   }
 
   /**
@@ -30,12 +40,27 @@ export class ExecutorClient {
   }
 
   /**
-   * Subscribe to task events via SSE
+   * Subscribe to task events via SSE with retry
    */
   async *subscribeTask(executorUrl: string, delegationId: string): AsyncIterable<TaskEvent> {
     const baseUrl = executorUrl.replace(/\/$/, '').replace(/\/awcp$/, '');
     const url = `${baseUrl}/awcp/tasks/${delegationId}/events`;
 
+    let retries = 0;
+    while (retries < this.sseMaxRetries) {
+      try {
+        yield* this.readSSE(url);
+        return;
+      } catch (error) {
+        retries++;
+        if (retries >= this.sseMaxRetries) throw error;
+        console.log(`[AWCP:Client] SSE retry ${retries}/${this.sseMaxRetries} for ${delegationId}`);
+        await new Promise(r => setTimeout(r, this.sseRetryDelayMs * retries));
+      }
+    }
+  }
+
+  private async *readSSE(url: string): AsyncIterable<TaskEvent> {
     const response = await fetch(url, {
       headers: { Accept: 'text/event-stream' },
     });
@@ -68,7 +93,6 @@ export class ExecutorClient {
               try {
                 const event = JSON.parse(data) as TaskEvent;
                 yield event;
-
                 if (event.type === 'done' || event.type === 'error') {
                   return;
                 }

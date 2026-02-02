@@ -2,7 +2,7 @@
  * AWCP Configuration for Echo Agent
  */
 
-import type { ExecutorConfig } from '@awcp/sdk';
+import type { ExecutorConfig, TaskStartContext } from '@awcp/sdk';
 import { SshfsTransport } from '@awcp/transport-sshfs';
 
 export const awcpConfig: ExecutorConfig = {
@@ -19,8 +19,8 @@ export const awcpConfig: ExecutorConfig = {
     autoAccept: true,
   },
   hooks: {
-    onTaskStart: (delegationId: string, workPath: string) => {
-      console.log(`[AWCP] Task started: ${delegationId} at ${workPath}`);
+    onTaskStart: (ctx: TaskStartContext) => {
+      console.log(`[AWCP] Task started: ${ctx.delegationId} at ${ctx.workPath}`);
     },
     onTaskComplete: (delegationId: string, summary: string) => {
       console.log(`[AWCP] Task completed: ${delegationId}`);

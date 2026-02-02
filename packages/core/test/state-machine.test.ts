@@ -103,7 +103,7 @@ describe('DelegationStateMachine', () => {
         type: 'INVITE',
         delegationId,
         task: { description: 'Test', prompt: 'Test prompt' },
-        workspace: { exportName: 'awcp/test-123' },
+        environment: { resources: [{ name: 'project', type: 'fs', source: '/path/to/project', mode: 'rw' }] },
         lease: { ttlSeconds: 3600, accessMode: 'rw' },
       };
       expect(sm.transition({ type: 'SEND_INVITE', message: invite })).toMatchObject({
@@ -265,7 +265,7 @@ describe('createDelegation', () => {
     const delegation = createDelegation({
       id: 'test-123',
       peerUrl: 'http://executor:4001/awcp',
-      localDir: '/path/to/project',
+      environment: { resources: [{ name: 'project', type: 'fs', source: '/path/to/project', mode: 'rw' }] },
       task: { description: 'Fix bug', prompt: 'Fix the bug in main.ts' },
       leaseConfig: { ttlSeconds: 3600, accessMode: 'rw' },
     });
@@ -273,7 +273,7 @@ describe('createDelegation', () => {
     expect(delegation.id).toBe('test-123');
     expect(delegation.state).toBe('created');
     expect(delegation.peerUrl).toBe('http://executor:4001/awcp');
-    expect(delegation.localDir).toBe('/path/to/project');
+    expect(delegation.environment.resources[0]?.source).toBe('/path/to/project');
     expect(delegation.task.description).toBe('Fix bug');
     expect(delegation.leaseConfig.ttlSeconds).toBe(3600);
     expect(delegation.createdAt).toBeDefined();
@@ -285,7 +285,7 @@ describe('applyMessageToDelegation', () => {
   const baseDelegation = createDelegation({
     id: 'test-123',
     peerUrl: 'http://executor:4001/awcp',
-    localDir: '/path/to/project',
+    environment: { resources: [{ name: 'project', type: 'fs', source: '/path/to/project', mode: 'rw' }] },
     task: { description: 'Test', prompt: 'Test' },
     leaseConfig: { ttlSeconds: 3600, accessMode: 'rw' },
   });

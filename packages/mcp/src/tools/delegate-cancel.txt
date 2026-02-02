@@ -1,16 +1,25 @@
-Cancel background delegations.
+Cancel active delegations.
+
+## When to use
+
+- The delegation is taking longer than expected
+- You no longer need the result (e.g., found an alternative solution)
+- You want to abort and try a different approach
+
+Cancellation frees up remote executor resources promptly.
 
 ## Parameters
 - **delegation_id** (optional): Specific delegation ID to cancel
-- **all** (optional): Cancel all running delegations
+- **all** (optional): Cancel all running delegations for this session
 
-## Usage
-Cancel a specific delegation:
+## Examples
+
+### Cancel a specific delegation
 ```
 delegate_cancel(delegation_id: "dlg_abc123")
 ```
 
-Cancel all running delegations:
+### Cancel all running delegations
 ```
 delegate_cancel(all: true)
 ```

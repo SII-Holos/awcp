@@ -34,7 +34,9 @@ async function testDelegation(
   try {
     const result = await client.delegate({
       executorUrl: EXECUTOR_URL,
-      localDir: WORKSPACE_DIR,
+      environment: {
+        resources: [{ name: 'workspace', type: 'fs', source: WORKSPACE_DIR, mode: 'rw' }],
+      },
       task: {
         description: 'Test task',
         prompt: 'list',

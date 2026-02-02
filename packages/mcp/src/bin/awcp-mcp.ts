@@ -15,6 +15,7 @@ import { createAwcpMcpServer } from '../server.js';
 import { ensureDaemonRunning, type AutoDaemonOptions } from '../auto-daemon.js';
 import { discoverPeers, type PeersContext } from '../peer-discovery.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import { createWriteStream, type WriteStream } from 'node:fs';
 import type { AccessMode } from '@awcp/core';
 
 interface ParsedArgs {
@@ -22,9 +23,8 @@ interface ParsedArgs {
   daemonUrl?: string;
   port: number;
 
-  // Export
-  exportsDir?: string;
-  exportStrategy?: 'symlink' | 'bind' | 'worktree';
+  // Environment
+  environmentDir?: string;
 
   // Transport
   transport: 'archive' | 'sshfs';
@@ -50,6 +50,9 @@ interface ParsedArgs {
 
   // Peers
   peerUrls: string[];
+
+  // Logging
+  logFile?: string;
 }
 
 function parseArgs(args: string[]): ParsedArgs | null {
@@ -80,13 +83,9 @@ function parseArgs(args: string[]): ParsedArgs | null {
         i++;
         break;
 
-      // Export
-      case '--exports-dir':
-        result.exportsDir = nextArg;
-        i++;
-        break;
-      case '--export-strategy':
-        result.exportStrategy = nextArg as 'symlink' | 'bind' | 'worktree';
+      // Environment
+      case '--environment-dir':
+        result.environmentDir = nextArg;
         i++;
         break;
 
@@ -153,6 +152,12 @@ function parseArgs(args: string[]): ParsedArgs | null {
         result.peerUrls = nextArg.split(',').map(u => u.trim()).filter(Boolean);
         i++;
         break;
+
+      // Logging
+      case '--log-file':
+        result.logFile = nextArg;
+        i++;
+        break;
     }
   }
 
@@ -163,6 +168,24 @@ async function main() {
   const parsed = parseArgs(process.argv.slice(2));
   if (!parsed) {
     process.exit(1);
+  }
+
+  // Setup log file if specified
+  let logStream: WriteStream | undefined;
+  if (parsed.logFile) {
+    logStream = createWriteStream(parsed.logFile, { flags: 'a' });
+    const originalConsoleError = console.error;
+    const originalConsoleLog = console.log;
+    const timestamp = () => new Date().toISOString();
+    console.error = (...args) => {
+      logStream!.write(`[${timestamp()}] ${args.join(' ')}\n`);
+      originalConsoleError.apply(console, args);
+    };
+    console.log = (...args) => {
+      logStream!.write(`[${timestamp()}] ${args.join(' ')}\n`);
+      originalConsoleLog.apply(console, args);
+    };
+    console.error(`[AWCP MCP] Logging to ${parsed.logFile}`);
   }
 
   // Discover peers (fetch Agent Cards)
@@ -183,8 +206,7 @@ async function main() {
     // Build auto-daemon options from parsed args
     const options: AutoDaemonOptions = {
       port: parsed.port,
-      exportsDir: parsed.exportsDir,
-      exportStrategy: parsed.exportStrategy,
+      environmentDir: parsed.environmentDir,
       transport: parsed.transport,
       maxTotalBytes: parsed.maxTotalBytes,
       maxFileCount: parsed.maxFileCount,
@@ -248,9 +270,8 @@ Daemon Options:
   --daemon-url URL           Use existing Delegator Daemon (skips auto-start)
   --port PORT                Port for daemon (default: 3100)
 
-Export Options:
-  --exports-dir DIR          Directory for exports (default: ~/.awcp/exports)
-  --export-strategy TYPE     Strategy: symlink, bind, worktree (default: symlink)
+Environment Options:
+  --environment-dir DIR      Directory for environments (default: ~/.awcp/environments)
 
 Transport Options:
   --transport TYPE           Transport: archive, sshfs (default: archive)
@@ -276,6 +297,9 @@ SSHFS Transport Options:
 
 Peer Discovery:
   --peers URL,...            Comma-separated list of executor base URLs
+
+Logging:
+  --log-file PATH            Write daemon logs to file (for debugging)
 
 Other:
   --help, -h                 Show this help message

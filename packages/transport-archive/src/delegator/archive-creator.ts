@@ -1,7 +1,5 @@
 /**
- * Archive Creator
- *
- * Creates ZIP archives from directories.
+ * Creates ZIP archives from directories for archive-based transport.
  */
 
 import * as fs from 'node:fs';
@@ -23,9 +21,6 @@ export class ArchiveCreator {
     this.tempDir = config.tempDir ?? path.join(os.tmpdir(), 'awcp-archives');
   }
 
-  /**
-   * Create a ZIP archive from a directory
-   */
   async create(delegationId: string, sourceDir: string): Promise<ArchiveCreateResult> {
     await fs.promises.mkdir(this.tempDir, { recursive: true });
 
@@ -34,7 +29,12 @@ export class ArchiveCreator {
     const archive = archiver('zip', { zlib: { level: 6 } });
 
     archive.pipe(writeStream);
-    archive.directory(sourceDir, false);
+    archive.glob('**/*', {
+      cwd: sourceDir,
+      ignore: ['.awcp/**'],
+      dot: true,
+      follow: true,
+    });
     await archive.finalize();
 
     await new Promise<void>((resolve, reject) => {
@@ -56,31 +56,18 @@ export class ArchiveCreator {
     };
   }
 
-  /**
-   * Get path to an existing archive
-   */
-  getArchivePath(delegationId: string): string | undefined {
-    return this.archives.get(delegationId);
-  }
-
-  /**
-   * Clean up archive for a delegation
-   */
   async cleanup(delegationId: string): Promise<void> {
     const archivePath = this.archives.get(delegationId);
     if (archivePath) {
       try {
         await fs.promises.unlink(archivePath);
       } catch {
-        // Ignore
+        // File may already be removed
       }
       this.archives.delete(delegationId);
     }
   }
 
-  /**
-   * Clean up all archives
-   */
   async cleanupAll(): Promise<void> {
     for (const delegationId of this.archives.keys()) {
       await this.cleanup(delegationId);

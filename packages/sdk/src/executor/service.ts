@@ -17,15 +17,18 @@ import {
   type ErrorMessage,
   type AwcpMessage,
   type TaskSpec,
+  type EnvironmentSpec,
   type ExecutorConstraints,
   type ExecutorTransportAdapter,
   type TaskEvent,
   type TaskStatusEvent,
   type TaskDoneEvent,
   type TaskErrorEvent,
+  type ActiveLease,
   PROTOCOL_VERSION,
   ErrorCodes,
   AwcpError,
+  CancelledError,
 } from '@awcp/core';
 import { type ExecutorConfig, type ResolvedExecutorConfig, resolveExecutorConfig } from './config.js';
 import { WorkspaceManager } from './workspace-manager.js';
@@ -39,6 +42,8 @@ interface ActiveDelegation {
   id: string;
   workPath: string;
   task: TaskSpec;
+  lease: ActiveLease;
+  environment: EnvironmentSpec;
   startedAt: Date;
   eventEmitter: EventEmitter;
 }
@@ -218,7 +223,7 @@ export class ExecutorService {
 
     const pending = this.pendingInvitations.get(delegationId);
     if (!pending) {
-      console.warn(`[AWCP] Unknown delegation for START: ${delegationId}`);
+      console.warn(`[AWCP:Executor] Unknown delegation for START: ${delegationId}`);
       return;
     }
 
@@ -231,12 +236,14 @@ export class ExecutorService {
       id: delegationId,
       workPath,
       task: pending.invite.task,
+      lease: start.lease,
+      environment: pending.invite.environment,
       startedAt: new Date(),
       eventEmitter,
     });
 
     // Task execution runs async - don't await
-    this.executeTask(delegationId, start, workPath, pending.invite.task, eventEmitter);
+    this.executeTask(delegationId, start, workPath, pending.invite.task, start.lease, pending.invite.environment, eventEmitter);
   }
 
   private async executeTask(
@@ -244,6 +251,8 @@ export class ExecutorService {
     start: StartMessage,
     workPath: string,
     task: TaskSpec,
+    lease: ActiveLease,
+    environment: EnvironmentSpec,
     eventEmitter: EventEmitter,
   ): Promise<void> {
     try {
@@ -255,7 +264,7 @@ export class ExecutorService {
         workDir: workPath,
       });
 
-      this.config.hooks.onTaskStart?.(delegationId, actualPath);
+      this.config.hooks.onTaskStart?.({ delegationId, workPath: actualPath, task, lease, environment });
 
       const statusEvent: TaskStatusEvent = {
         delegationId,
@@ -266,7 +275,7 @@ export class ExecutorService {
       };
       eventEmitter.emit('event', statusEvent);
 
-      const result = await this.executeViaA2A(actualPath, task);
+      const result = await this.executeViaA2A(actualPath, task, environment);
 
       const teardownResult = await this.transport.teardown({ delegationId, workDir: actualPath });
 
@@ -346,7 +355,7 @@ export class ExecutorService {
       await this.workspace.release(delegation.workPath);
       this.config.hooks.onError?.(
         delegationId,
-        new AwcpError(ErrorCodes.CANCELLED, 'Delegation cancelled by Delegator', undefined, delegationId)
+        new CancelledError('Delegation cancelled by Delegator', undefined, delegationId)
       );
       return;
     }
@@ -361,7 +370,8 @@ export class ExecutorService {
 
   private async executeViaA2A(
     workPath: string,
-    task: TaskSpec
+    task: TaskSpec,
+    environment: EnvironmentSpec
   ): Promise<{ summary: string; highlights?: string[] }> {
     const message: Message = {
       kind: 'message',
@@ -371,7 +381,7 @@ export class ExecutorService {
         { kind: 'text', text: task.prompt },
         {
           kind: 'text',
-          text: `\n\n[AWCP Context]\nWorking directory: ${workPath}\nTask: ${task.description}`,
+          text: this.formatAwcpContext(workPath, task, environment),
         },
       ],
     };
@@ -400,6 +410,30 @@ export class ExecutorService {
     return {
       summary: summary || 'Task completed',
     };
+  }
+
+  private formatAwcpContext(workPath: string, task: TaskSpec, environment: EnvironmentSpec): string {
+    const lines = [
+      '',
+      '[AWCP Context]',
+      `Task: ${task.description}`,
+      `Root: ${workPath}`,
+      '',
+      'Resources:',
+    ];
+
+    for (const resource of environment.resources) {
+      const resourcePath = `${workPath}/${resource.name}`;
+      lines.push(`  - ${resource.name}: ${resourcePath} (${resource.mode})`);
+    }
+
+    if (environment.resources.length === 1) {
+      const singleResource = environment.resources[0]!;
+      lines.push('');
+      lines.push(`Working directory: ${workPath}/${singleResource.name}`);
+    }
+
+    return lines.join('\n');
   }
 
   getStatus(): ExecutorServiceStatus {

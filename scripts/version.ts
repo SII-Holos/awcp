@@ -21,6 +21,7 @@ import { execSync } from 'node:child_process';
 const PACKAGES = [
   'packages/core',
   'packages/transport-sshfs',
+  'packages/transport-archive',
   'packages/sdk',
   'packages/mcp',
 ];

@@ -10,6 +10,7 @@ import { AGENT_CARD_PATH } from '@a2a-js/sdk';
 import { DefaultRequestHandler, InMemoryTaskStore } from '@a2a-js/sdk/server';
 import { agentCardHandler, jsonRpcHandler, UserBuilder } from '@a2a-js/sdk/server/express';
 import { executorHandler } from '@awcp/sdk/server/express';
+import { resolveWorkDir, type TaskStartContext } from '@awcp/sdk';
 
 import { synergyAgentCard } from './agent-card.js';
 import { SynergyExecutor } from './synergy-executor.js';
@@ -18,40 +19,36 @@ import { loadConfig } from './config.js';
 
 const config = loadConfig();
 
-// Create Synergy executor instance
 const executor = new SynergyExecutor(config.synergyUrl);
 
-// A2A Request Handler
 const requestHandler = new DefaultRequestHandler(
   synergyAgentCard,
   new InMemoryTaskStore(),
   executor
 );
 
-// Create Express app
 const app = express();
 
-// A2A endpoints
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-app.use(`/${AGENT_CARD_PATH}`, agentCardHandler({ agentCardProvider: requestHandler }) as any);
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+// Type casts needed due to @types/express version mismatch between packages
+app.use(`/${AGENT_CARD_PATH}`, agentCardHandler({ agentCardProvider: requestHandler }) as unknown as express.RequestHandler);
 app.use('/a2a', jsonRpcHandler({
   requestHandler,
   userBuilder: UserBuilder.noAuthentication
-}) as any);
+}) as unknown as express.RequestHandler);
 
-// AWCP endpoint with hooks to control executor's working directory
 const awcpConfigWithHooks = {
   ...awcpConfig,
   hooks: {
     ...awcpConfig.hooks,
-    onTaskStart: (delegationId: string, workPath: string) => {
-      // Set the executor's working directory to the mounted/extracted workspace
-      executor.setWorkingDirectory(workPath);
-      awcpConfig.hooks?.onTaskStart?.(delegationId, workPath);
+    onTaskStart: (ctx: TaskStartContext) => {
+      const workDir = resolveWorkDir(ctx);
+      executor.setWorkingDirectory(workDir, {
+        leaseExpiresAt: new Date(ctx.lease.expiresAt),
+        delegationId: ctx.delegationId,
+      });
+      awcpConfig.hooks?.onTaskStart?.(ctx);
     },
     onTaskComplete: (delegationId: string, summary: string) => {
-      // Clear the working directory after task completes
       executor.clearWorkingDirectory();
       awcpConfig.hooks?.onTaskComplete?.(delegationId, summary);
     },
@@ -62,15 +59,12 @@ const awcpConfigWithHooks = {
   },
 };
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-app.use('/awcp', executorHandler({ executor, config: awcpConfigWithHooks }) as any);
+app.use('/awcp', executorHandler({ executor, config: awcpConfigWithHooks }) as unknown as express.RequestHandler);
 
-// Health check
 app.get('/health', (_req, res) => {
   res.json({ status: 'ok', synergy: config.synergyUrl });
 });
 
-// Start server
 app.listen(config.port, () => {
   console.log('');
   console.log('╔════════════════════════════════════════════════════════════╗');
@@ -83,3 +77,4 @@ app.listen(config.port, () => {
   console.log('╚════════════════════════════════════════════════════════════╝');
   console.log('');
 });
+

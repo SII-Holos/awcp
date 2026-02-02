@@ -1,0 +1,8 @@
+# Build output
+dist/
+
+# Runtime directories
+.openclaw/
+
+# Dependencies
+node_modules/

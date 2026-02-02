@@ -48,17 +48,21 @@ describe('ArchiveCreator', () => {
 
     const result = await creator.create('test-delegation', sourceDir);
 
-    expect(creator.getArchivePath('test-delegation')).toBe(result.archivePath);
-
-    await creator.cleanup('test-delegation');
-
-    expect(creator.getArchivePath('test-delegation')).toBeUndefined();
-
-    const exists = await fs.promises
+    // Verify archive was created
+    const existsBefore = await fs.promises
       .access(result.archivePath)
       .then(() => true)
       .catch(() => false);
-    expect(exists).toBe(false);
+    expect(existsBefore).toBe(true);
+
+    await creator.cleanup('test-delegation');
+
+    // Verify archive was removed
+    const existsAfter = await fs.promises
+      .access(result.archivePath)
+      .then(() => true)
+      .catch(() => false);
+    expect(existsAfter).toBe(false);
   });
 });
 

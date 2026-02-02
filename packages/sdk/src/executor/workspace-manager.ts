@@ -4,15 +4,13 @@
 
 import { mkdir, readdir, rm } from 'node:fs/promises';
 import { join } from 'node:path';
+import { cleanupStaleDirectories } from '../utils/index.js';
 
 export interface WorkspaceValidation {
   valid: boolean;
   reason?: string;
 }
 
-/**
- * Manages workspace allocation, preparation, and cleanup.
- */
 export class WorkspaceManager {
   private workDir: string;
   private allocated = new Set<string>();
@@ -21,14 +19,12 @@ export class WorkspaceManager {
     this.workDir = workDir;
   }
 
-  /** Allocate a workspace path for a delegation */
   allocate(delegationId: string): string {
     const path = join(this.workDir, delegationId);
     this.allocated.add(path);
     return path;
   }
 
-  /** Validate that a workspace path is safe to use */
   validate(path: string): WorkspaceValidation {
     if (!path.startsWith(this.workDir)) {
       return { valid: false, reason: `Path must be under ${this.workDir}` };
@@ -36,7 +32,6 @@ export class WorkspaceManager {
     return { valid: true };
   }
 
-  /** Prepare a workspace directory */
   async prepare(path: string): Promise<void> {
     await mkdir(path, { recursive: true });
     const entries = await readdir(path);
@@ -45,42 +40,29 @@ export class WorkspaceManager {
     }
   }
 
-  /** Release a workspace and remove the directory */
   async release(path: string): Promise<void> {
     this.allocated.delete(path);
     try {
       await rm(path, { recursive: true, force: true });
     } catch {
-      // Ignore errors - directory may already be gone
+      // Directory may already be removed
     }
   }
 
-  /** Cleanup stale workspace directories from previous runs */
   async cleanupStale(): Promise<number> {
-    let cleaned = 0;
-    try {
-      const entries = await readdir(this.workDir, { withFileTypes: true });
-      for (const entry of entries) {
-        if (entry.isDirectory()) {
-          const path = join(this.workDir, entry.name);
-          if (!this.allocated.has(path)) {
-            await rm(path, { recursive: true, force: true });
-            cleaned++;
-          }
-        }
-      }
-    } catch {
-      // Root directory may not exist yet
+    // Build set of delegation IDs (directory names) that are active
+    const activeIds = new Set<string>();
+    for (const path of this.allocated) {
+      const name = path.substring(this.workDir.length + 1);
+      activeIds.add(name);
     }
-    return cleaned;
+    return cleanupStaleDirectories(this.workDir, activeIds);
   }
 
-  /** Check if a path is currently allocated */
   isAllocated(path: string): boolean {
     return this.allocated.has(path);
   }
 
-  /** Get all currently allocated paths */
   getAllocated(): string[] {
     return Array.from(this.allocated);
   }

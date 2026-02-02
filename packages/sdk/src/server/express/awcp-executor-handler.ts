@@ -50,7 +50,7 @@ export function executorHandler(options: ExecutorHandlerOptions): Router {
         res.json({ ok: true });
       }
     } catch (error) {
-      console.error('[AWCP Executor] Error handling message:', error);
+      console.error('[AWCP:Executor] Error handling message:', error);
       res.status(500).json({
         error: error instanceof Error ? error.message : 'Internal error',
       });
@@ -98,7 +98,7 @@ export function executorHandler(options: ExecutorHandlerOptions): Router {
       await service.cancelDelegation(delegationId);
       res.json({ ok: true, cancelled: true });
     } catch (error) {
-      console.error('[AWCP Executor] Error cancelling delegation:', error);
+      console.error('[AWCP:Executor] Error cancelling delegation:', error);
       res.status(error instanceof Error && error.message.includes('not found') ? 404 : 500).json({
         error: error instanceof Error ? error.message : 'Internal error',
       });

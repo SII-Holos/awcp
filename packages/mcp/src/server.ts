@@ -12,6 +12,7 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { DelegatorDaemonClient } from '@awcp/sdk/delegator/client';
 import type { Delegation } from '@awcp/core';
+import { resolve, isAbsolute } from 'node:path';
 
 import {
   delegateSchema,
@@ -82,16 +83,24 @@ export function createAwcpMcpServer(options: AwcpMcpServerOptions = {}) {
         description,
         prompt,
         workspace_dir,
+        cwd,
         peer_url,
         ttl_seconds,
         access_mode,
         background,
       } = params;
 
+      // Normalize workspace path: resolve relative paths against cwd
+      const normalizedWorkspaceDir = isAbsolute(workspace_dir)
+        ? workspace_dir
+        : resolve(cwd ?? process.cwd(), workspace_dir);
+
       try {
         const result = await client.delegate({
           executorUrl: peer_url,
-          localDir: workspace_dir,
+          environment: {
+            resources: [{ name: 'workspace', type: 'fs', source: normalizedWorkspaceDir, mode: access_mode ?? 'rw' }],
+          },
           task: { description, prompt },
           ttlSeconds: ttl_seconds ?? defaultTtl,
           accessMode: access_mode ?? 'rw',
@@ -108,7 +117,7 @@ export function createAwcpMcpServer(options: AwcpMcpServerOptions = {}) {
 
 Delegation ID: ${delegationId}
 Executor: ${peer_url}
-Workspace: ${workspace_dir}
+Workspace: ${normalizedWorkspaceDir}
 Status: running
 
 Use \`delegate_output(delegation_id="${delegationId}")\` to check progress or retrieve results.`,

@@ -50,18 +50,18 @@ export async function startDelegatorDaemon(config: DaemonConfig): Promise<Daemon
    */
   app.post('/delegate', async (req, res) => {
     try {
-      const { executorUrl, localDir, task, ttlSeconds, accessMode } = req.body;
+      const { executorUrl, environment, task, ttlSeconds, accessMode } = req.body;
 
-      if (!executorUrl || !localDir || !task) {
+      if (!executorUrl || !environment || !task) {
         res.status(400).json({
-          error: 'Missing required fields: executorUrl, localDir, task',
+          error: 'Missing required fields: executorUrl, environment, task',
         });
         return;
       }
 
       const delegationId = await service.delegate({
         executorUrl,
-        localDir,
+        environment,
         task,
         ttlSeconds,
         accessMode,
@@ -69,7 +69,7 @@ export async function startDelegatorDaemon(config: DaemonConfig): Promise<Daemon
 
       res.json({ delegationId });
     } catch (error) {
-      console.error('[Delegator Daemon] Error creating delegation:', error);
+      console.error('[AWCP:Daemon] Error creating delegation:', error);
       
       if (error instanceof AwcpError) {
         res.status(400).json({
@@ -129,7 +129,7 @@ export async function startDelegatorDaemon(config: DaemonConfig): Promise<Daemon
 
   await new Promise<void>((resolve, reject) => {
     server.listen(port, host, () => {
-      console.log(`[Delegator Daemon] Listening on ${baseUrl}`);
+      console.log(`[AWCP:Daemon] Listening on ${baseUrl}`);
       resolve();
     });
     server.on('error', reject);
@@ -143,7 +143,7 @@ export async function startDelegatorDaemon(config: DaemonConfig): Promise<Daemon
           else resolve();
         });
       });
-      console.log('[Delegator Daemon] Stopped');
+      console.log('[AWCP:Daemon] Stopped');
     },
     service,
     url: baseUrl,
@@ -183,7 +183,7 @@ export async function main(): Promise<void> {
   });
 
   process.on('SIGINT', async () => {
-    console.log('\n[Delegator Daemon] Shutting down...');
+    console.log('\n[AWCP:Daemon] Shutting down...');
     await daemon.stop();
     process.exit(0);
   });
@@ -193,5 +193,5 @@ export async function main(): Promise<void> {
     process.exit(0);
   });
 
-  console.log(`[Delegator Daemon] Ready. API available at ${daemon.url}`);
+  console.log(`[AWCP:Daemon] Ready. API available at ${daemon.url}`);
 }

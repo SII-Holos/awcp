@@ -48,7 +48,7 @@ export function buildSshfsArgs(
 /**
  * SSHFS Mount Client
  * 
- * Handles mounting remote filesystems via SSHFS on the Remote side.
+ * Handles mounting remote filesystems via SSHFS on the executor side.
  */
 export class SshfsMountClient {
   private config: SshfsMountConfig;
@@ -58,16 +58,10 @@ export class SshfsMountClient {
     this.config = config ?? {};
   }
 
-  /**
-   * Get active mounts (for testing)
-   */
   getActiveMounts(): Map<string, ActiveMount> {
     return this.activeMounts;
   }
 
-  /**
-   * Check if sshfs is available
-   */
   async checkDependency(): Promise<{ available: boolean; version?: string; error?: string }> {
     return new Promise((resolve) => {
       const proc = spawn('sshfs', ['--version']);
@@ -104,9 +98,6 @@ export class SshfsMountClient {
     });
   }
 
-  /**
-   * Write credential files to disk
-   */
   async writeCredentialFiles(
     tempKeyDir: string,
     credential: SshCredential,
@@ -121,19 +112,12 @@ export class SshfsMountClient {
     return { keyPath, certPath };
   }
 
-  /**
-   * Clean up credential files
-   */
   async cleanupCredentialFiles(keyPath: string, certPath: string): Promise<void> {
     await unlink(keyPath).catch(() => {});
     await unlink(certPath).catch(() => {});
   }
 
-  /**
-   * Mount a remote filesystem
-   */
   async mount(params: MountParams): Promise<void> {
-    // Check dependency
     const depCheck = await this.checkDependency();
     if (!depCheck.available) {
       throw new DependencyMissingError(
@@ -148,12 +132,10 @@ export class SshfsMountClient {
     try {
       const args = buildSshfsArgs(params, keyPath, certPath, this.config.defaultOptions);
 
-      console.log(`[SSHFS] Mounting: sshfs ${args.join(' ')}`);
+      console.log(`[AWCP:SSHFS] Mounting: sshfs ${args.join(' ')}`);
 
-      // Execute mount (SSHFS will daemonize and exit immediately on success)
       await this.execMount(args, params.mountPoint);
 
-      // Track active mount
       this.activeMounts.set(params.mountPoint, {
         mountPoint: params.mountPoint,
         keyPath,
@@ -161,23 +143,18 @@ export class SshfsMountClient {
       });
 
     } catch (error) {
-      // Cleanup key and cert on failure
       await this.cleanupCredentialFiles(keyPath, certPath);
       throw error;
     }
   }
 
-  /**
-   * Unmount a filesystem
-   */
   async unmount(mountPoint: string): Promise<void> {
     const activeMount = this.activeMounts.get(mountPoint);
 
-    // Try different unmount methods
     const unmountCommands = [
       ['umount', mountPoint],
       ['fusermount', '-u', mountPoint],
-      ['diskutil', 'unmount', mountPoint], // macOS
+      ['diskutil', 'unmount', mountPoint],
     ];
 
     let success = false;
@@ -192,32 +169,15 @@ export class SshfsMountClient {
     }
 
     if (!success) {
-      console.warn(`Failed to unmount ${mountPoint}, may need manual cleanup`);
+      console.warn(`[AWCP:SSHFS] Failed to unmount ${mountPoint}, may need manual cleanup`);
     }
 
-    // Cleanup key and certificate files
     if (activeMount) {
       await this.cleanupCredentialFiles(activeMount.keyPath, activeMount.certPath);
       this.activeMounts.delete(mountPoint);
     }
   }
 
-  /**
-   * Check if a mount point is currently mounted
-   */
-  async isMounted(mountPoint: string): Promise<boolean> {
-    try {
-      // Check if the mount point exists and is tracked
-      await stat(mountPoint);
-      return this.activeMounts.has(mountPoint);
-    } catch {
-      return false;
-    }
-  }
-
-  /**
-   * Unmount all active mounts
-   */
   async unmountAll(): Promise<void> {
     for (const mountPoint of this.activeMounts.keys()) {
       await this.unmount(mountPoint);
@@ -228,7 +188,6 @@ export class SshfsMountClient {
     const timeout = this.config.mountTimeout ?? DEFAULT_MOUNT_TIMEOUT;
 
     return new Promise((resolve, reject) => {
-      // SSHFS without -f will daemonize and exit immediately with code 0 on success
       const proc = spawn('sshfs', args, {
         stdio: ['ignore', 'pipe', 'pipe'],
       });
@@ -240,11 +199,10 @@ export class SshfsMountClient {
 
       const timer = setTimeout(async () => {
         proc.kill();
-        // Clean up possible zombie mount
         try {
           await this.unmount(mountPoint);
         } catch {
-          // Ignore - mount may not exist
+          // Mount may not exist
         }
         reject(new SetupFailedError(`Mount timeout after ${timeout}ms`));
       }, timeout);
@@ -257,14 +215,12 @@ export class SshfsMountClient {
           return;
         }
 
-        // SSHFS daemonized successfully (exit code 0)
-        // Now verify the mount is actually there
+        // Verify mount is actually there
         try {
           const mountStat = await stat(mountPoint);
           const parentStat = await stat(join(mountPoint, '..'));
           
           if (mountStat.dev !== parentStat.dev) {
-            // Different device = mounted successfully
             resolve();
           } else {
             reject(new SetupFailedError('SSHFS exited but mount not detected'));

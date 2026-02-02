@@ -11,7 +11,7 @@ on:
       - "!packages/**/test/**"
       - "!**/*.md"
 
-  # Manual trigger for releases
+  # Manual trigger for releases (run on dev branch)
   workflow_dispatch:
     inputs:
       bump:
@@ -35,6 +35,8 @@ permissions:
 jobs:
   publish:
     runs-on: ubuntu-latest
+    # Only run on dev branch
+    if: github.ref == 'refs/heads/dev'
     steps:
       - uses: actions/checkout@v4
         with:
@@ -78,6 +80,7 @@ jobs:
           
           cd packages/core && npm publish --access public --tag $TAG
           cd ../transport-sshfs && npm publish --access public --tag $TAG
+          cd ../transport-archive && npm publish --access public --tag $TAG
           cd ../sdk && npm publish --access public --tag $TAG
           cd ../mcp && npm publish --access public --tag $TAG
         env:
@@ -89,7 +92,8 @@ jobs:
           git add -A
           git commit -m "release: v${{ steps.version.outputs.version }}" || true
           git tag "v${{ steps.version.outputs.version }}"
-          git push origin HEAD --tags
+          # Push to dev branch (not main) to avoid branch protection issues
+          git push origin dev --tags
 
       - name: Create GitHub Release (releases only)
         if: steps.version.outputs.preview != 'true'
@@ -107,11 +111,12 @@ jobs:
           echo "## Published" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "- **Version:** \`${{ steps.version.outputs.version }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "- **Channel:** \`${{ steps.version.outputs.channel }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "- **Preview:** \`${{ steps.version.outputs.preview }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Tag:** \`${{ steps.version.outputs.preview == 'true' && 'dev' || 'latest' }}\`" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           if [ "${{ steps.version.outputs.preview }}" = "true" ]; then
             echo "Install with: \`npm install @awcp/sdk@dev\`" >> $GITHUB_STEP_SUMMARY
           else
             echo "Install with: \`npm install @awcp/sdk\`" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "> Remember to create a PR to sync dev → main" >> $GITHUB_STEP_SUMMARY
           fi

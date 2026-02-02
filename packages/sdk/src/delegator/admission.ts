@@ -1,22 +1,23 @@
 import { stat, readdir } from 'node:fs/promises';
 import { join } from 'node:path';
+import { DEFAULT_ADMISSION } from './config.js';
 
 /**
  * Admission control configuration
  */
 export interface AdmissionConfig {
-  /** Maximum total bytes allowed (default: 100MB) */
+  /** Maximum total bytes allowed */
   maxTotalBytes?: number;
-  /** Maximum file count allowed (default: 10000) */
+  /** Maximum file count allowed */
   maxFileCount?: number;
-  /** Maximum single file size (default: 50MB) */
+  /** Maximum single file size */
   maxSingleFileBytes?: number;
-  /** Custom check function */
+  /** Custom check function for advanced validation */
   customCheck?: (localDir: string) => Promise<AdmissionResult>;
 }
 
 /**
- * Workspace statistics
+ * Workspace statistics from admission scan
  */
 export interface WorkspaceStats {
   estimatedBytes?: number;
@@ -34,17 +35,9 @@ export interface AdmissionResult {
 }
 
 /**
- * Default thresholds
- */
-const DEFAULT_MAX_TOTAL_BYTES = 100 * 1024 * 1024; // 100MB
-const DEFAULT_MAX_FILE_COUNT = 10000;
-const DEFAULT_MAX_SINGLE_FILE_BYTES = 50 * 1024 * 1024; // 50MB
-
-/**
- * Admission Controller
- * 
  * Performs preflight checks on workspace before allowing delegation.
- * This protects the network from being overwhelmed by large workspaces.
+ * Protects the system from oversized workspaces that could overwhelm
+ * network or storage resources.
  */
 export class AdmissionController {
   private config: AdmissionConfig;
@@ -53,23 +46,18 @@ export class AdmissionController {
     this.config = config ?? {};
   }
 
-  /**
-   * Check if a workspace is suitable for delegation
-   */
   async check(localDir: string): Promise<AdmissionResult> {
-    // If custom check is provided, use it
     if (this.config.customCheck) {
       return this.config.customCheck(localDir);
     }
 
     try {
-      const stats = await this.estimateWorkspaceStats(localDir);
+      const stats = await this.scanWorkspace(localDir);
       
-      const maxTotal = this.config.maxTotalBytes ?? DEFAULT_MAX_TOTAL_BYTES;
-      const maxCount = this.config.maxFileCount ?? DEFAULT_MAX_FILE_COUNT;
-      const maxSingle = this.config.maxSingleFileBytes ?? DEFAULT_MAX_SINGLE_FILE_BYTES;
+      const maxTotal = this.config.maxTotalBytes ?? DEFAULT_ADMISSION.maxTotalBytes;
+      const maxCount = this.config.maxFileCount ?? DEFAULT_ADMISSION.maxFileCount;
+      const maxSingle = this.config.maxSingleFileBytes ?? DEFAULT_ADMISSION.maxSingleFileBytes;
 
-      // Check total size
       if (stats.estimatedBytes && stats.estimatedBytes > maxTotal) {
         return {
           allowed: false,
@@ -78,7 +66,6 @@ export class AdmissionController {
         };
       }
 
-      // Check file count
       if (stats.fileCount && stats.fileCount > maxCount) {
         return {
           allowed: false,
@@ -87,7 +74,6 @@ export class AdmissionController {
         };
       }
 
-      // Check largest file
       if (stats.largestFileBytes && stats.largestFileBytes > maxSingle) {
         return {
           allowed: false,
@@ -98,33 +84,29 @@ export class AdmissionController {
 
       return { allowed: true, stats };
     } catch (error) {
-      // If we can't check, allow it (fail open for usability)
-      // Real implementations may want to fail closed
-      console.warn('Admission check failed, allowing by default:', error);
+      // Fail open for usability - real implementations may want to fail closed
+      console.warn('[AWCP:Admission] Check failed, allowing by default:', error);
       return { allowed: true };
     }
   }
 
-  /**
-   * Estimate workspace statistics by recursively scanning the directory
-   */
-  private async estimateWorkspaceStats(localDir: string): Promise<WorkspaceStats> {
+  private async scanWorkspace(localDir: string): Promise<WorkspaceStats> {
     let totalBytes = 0;
     let fileCount = 0;
     let largestFileBytes = 0;
 
-    const scanDir = async (dir: string): Promise<void> => {
+    const scan = async (dir: string): Promise<void> => {
       const entries = await readdir(dir, { withFileTypes: true });
       
       for (const entry of entries) {
         const fullPath = join(dir, entry.name);
         
         if (entry.isDirectory()) {
-          // Skip common large directories that shouldn't be delegated
+          // Skip directories that shouldn't be delegated
           if (entry.name === 'node_modules' || entry.name === '.git') {
             continue;
           }
-          await scanDir(fullPath);
+          await scan(fullPath);
         } else if (entry.isFile()) {
           try {
             const fileStat = await stat(fullPath);
@@ -141,13 +123,9 @@ export class AdmissionController {
       }
     };
 
-    await scanDir(localDir);
+    await scan(localDir);
 
-    return {
-      estimatedBytes: totalBytes,
-      fileCount,
-      largestFileBytes,
-    };
+    return { estimatedBytes: totalBytes, fileCount, largestFileBytes };
   }
 
   private formatBytes(bytes: number): string {

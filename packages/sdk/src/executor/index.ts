@@ -4,6 +4,7 @@ export {
   type ExecutorConfig,
   type PolicyConstraints,
   type ExecutorHooks,
+  type TaskStartContext,
   type ResolvedExecutorConfig,
   DEFAULT_EXECUTOR_CONFIG,
   resolveExecutorConfig,

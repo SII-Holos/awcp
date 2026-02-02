@@ -10,43 +10,37 @@ import { AGENT_CARD_PATH } from '@a2a-js/sdk';
 import { DefaultRequestHandler, InMemoryTaskStore } from '@a2a-js/sdk/server';
 import { agentCardHandler, jsonRpcHandler, UserBuilder } from '@a2a-js/sdk/server/express';
 import { executorHandler } from '@awcp/sdk/server/express';
+import { resolveWorkDir, type TaskStartContext } from '@awcp/sdk';
 
 import { executorAgentCard } from './agent-card.js';
 import { FileOperationExecutor } from './executor.js';
 import { awcpConfig } from './awcp-config.js';
 
-// Create executor instance (shared between A2A and AWCP)
 const executor = new FileOperationExecutor();
 
-// A2A Request Handler
 const requestHandler = new DefaultRequestHandler(
   executorAgentCard,
   new InMemoryTaskStore(),
   executor
 );
 
-// Create Express app
 const app = express();
 
-// A2A endpoints
 app.use(`/${AGENT_CARD_PATH}`, agentCardHandler({ agentCardProvider: requestHandler }));
-app.use('/a2a', jsonRpcHandler({ 
-  requestHandler, 
-  userBuilder: UserBuilder.noAuthentication 
+app.use('/a2a', jsonRpcHandler({
+  requestHandler,
+  userBuilder: UserBuilder.noAuthentication
 }));
 
-// AWCP endpoint with hooks to control executor's working directory
 const awcpConfigWithHooks = {
   ...awcpConfig,
   hooks: {
     ...awcpConfig.hooks,
-    onTaskStart: (delegationId: string, mountPoint: string) => {
-      // Set the executor's working directory to the mounted workspace
-      executor.setWorkingDirectory(mountPoint);
-      awcpConfig.hooks?.onTaskStart?.(delegationId, mountPoint);
+    onTaskStart: (ctx: TaskStartContext) => {
+      executor.setWorkingDirectory(resolveWorkDir(ctx));
+      awcpConfig.hooks?.onTaskStart?.(ctx);
     },
     onTaskComplete: (delegationId: string, summary: string) => {
-      // Clear the working directory after task completes
       executor.clearWorkingDirectory();
       awcpConfig.hooks?.onTaskComplete?.(delegationId, summary);
     },
@@ -59,7 +53,6 @@ const awcpConfigWithHooks = {
 
 app.use('/awcp', executorHandler({ executor, config: awcpConfigWithHooks }));
 
-// Start server
 const PORT = parseInt(process.env.PORT || '4001', 10);
 
 app.listen(PORT, () => {

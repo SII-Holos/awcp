@@ -3,27 +3,17 @@
  */
 
 import type { Delegation, AccessMode, DelegatorTransportAdapter } from '@awcp/core';
+import type { AdmissionConfig } from './admission.js';
+
+// Re-export for convenience
+export type { AdmissionConfig } from './admission.js';
 
 /**
- * Export view configuration
+ * Environment builder configuration
  */
-export interface ExportConfig {
-  /** Base directory for export views */
+export interface EnvironmentConfig {
+  /** Base directory for environment directories */
   baseDir: string;
-  /** Strategy for creating export view (default: 'symlink') */
-  strategy?: 'symlink' | 'bind' | 'worktree';
-}
-
-/**
- * Admission control configuration
- */
-export interface AdmissionConfig {
-  /** Maximum total bytes allowed (default: 100MB) */
-  maxTotalBytes?: number;
-  /** Maximum file count allowed (default: 10000) */
-  maxFileCount?: number;
-  /** Maximum single file size (default: 50MB) */
-  maxSingleFileBytes?: number;
 }
 
 /**
@@ -50,8 +40,8 @@ export interface DelegatorHooks {
  * AWCP Delegator Configuration
  */
 export interface DelegatorConfig {
-  /** Export view configuration */
-  export: ExportConfig;
+  /** Environment builder configuration */
+  environment: EnvironmentConfig;
   /** Transport adapter for data plane */
   transport: DelegatorTransportAdapter;
   /** Admission control */
@@ -63,21 +53,28 @@ export interface DelegatorConfig {
 }
 
 /**
- * Default configuration values
+ * Default admission thresholds
+ */
+export const DEFAULT_ADMISSION = {
+  maxTotalBytes: 100 * 1024 * 1024,      // 100MB
+  maxFileCount: 10000,
+  maxSingleFileBytes: 50 * 1024 * 1024,  // 50MB
+} as const;
+
+/**
+ * Default delegation settings
+ */
+export const DEFAULT_DELEGATION = {
+  ttlSeconds: 3600,
+  accessMode: 'rw' as AccessMode,
+} as const;
+
+/**
+ * Combined default configuration
  */
 export const DEFAULT_DELEGATOR_CONFIG = {
-  export: {
-    strategy: 'symlink' as const,
-  },
-  admission: {
-    maxTotalBytes: 100 * 1024 * 1024, // 100MB
-    maxFileCount: 10000,
-    maxSingleFileBytes: 50 * 1024 * 1024, // 50MB
-  },
-  defaults: {
-    ttlSeconds: 3600,
-    accessMode: 'rw' as AccessMode,
-  },
+  admission: DEFAULT_ADMISSION,
+  defaults: DEFAULT_DELEGATION,
 } as const;
 
 /**
@@ -101,7 +98,7 @@ export interface ResolvedDelegationDefaults {
  * Resolved configuration with all defaults applied
  */
 export interface ResolvedDelegatorConfig {
-  export: ExportConfig & { strategy: 'symlink' | 'bind' | 'worktree' };
+  export: EnvironmentConfig;
   transport: DelegatorTransportAdapter;
   admission: ResolvedAdmissionConfig;
   defaults: ResolvedDelegationDefaults;
@@ -114,18 +111,17 @@ export interface ResolvedDelegatorConfig {
 export function resolveDelegatorConfig(config: DelegatorConfig): ResolvedDelegatorConfig {
   return {
     export: {
-      baseDir: config.export.baseDir,
-      strategy: config.export.strategy ?? DEFAULT_DELEGATOR_CONFIG.export.strategy,
+      baseDir: config.environment.baseDir,
     },
     transport: config.transport,
     admission: {
-      maxTotalBytes: config.admission?.maxTotalBytes ?? DEFAULT_DELEGATOR_CONFIG.admission.maxTotalBytes,
-      maxFileCount: config.admission?.maxFileCount ?? DEFAULT_DELEGATOR_CONFIG.admission.maxFileCount,
-      maxSingleFileBytes: config.admission?.maxSingleFileBytes ?? DEFAULT_DELEGATOR_CONFIG.admission.maxSingleFileBytes,
+      maxTotalBytes: config.admission?.maxTotalBytes ?? DEFAULT_ADMISSION.maxTotalBytes,
+      maxFileCount: config.admission?.maxFileCount ?? DEFAULT_ADMISSION.maxFileCount,
+      maxSingleFileBytes: config.admission?.maxSingleFileBytes ?? DEFAULT_ADMISSION.maxSingleFileBytes,
     },
     defaults: {
-      ttlSeconds: config.defaults?.ttlSeconds ?? DEFAULT_DELEGATOR_CONFIG.defaults.ttlSeconds,
-      accessMode: config.defaults?.accessMode ?? DEFAULT_DELEGATOR_CONFIG.defaults.accessMode,
+      ttlSeconds: config.defaults?.ttlSeconds ?? DEFAULT_DELEGATION.ttlSeconds,
+      accessMode: config.defaults?.accessMode ?? DEFAULT_DELEGATION.accessMode,
     },
     hooks: config.hooks ?? {},
   };
