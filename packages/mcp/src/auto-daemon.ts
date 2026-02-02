@@ -8,7 +8,8 @@
 import { mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
-import type { DelegatorConfig, AccessMode } from '@awcp/sdk';
+import type { DelegatorConfig } from '@awcp/sdk';
+import type { AccessMode } from '@awcp/core';
 import { startDelegatorDaemon, type DaemonInstance } from '@awcp/sdk/delegator/daemon';
 import { ArchiveTransport } from '@awcp/transport-archive';
 
@@ -22,11 +23,9 @@ export interface AutoDaemonOptions {
   /** Timeout in ms to wait for daemon to start (default: 10000) */
   startTimeout?: number;
 
-  // === Export ===
-  /** Directory for workspace exports (default: ~/.awcp/exports) */
-  exportsDir?: string;
-  /** Export strategy: symlink, bind, worktree (default: symlink) */
-  exportStrategy?: 'symlink' | 'bind' | 'worktree';
+  // === Environment ===
+  /** Directory for environment builds (default: ~/.awcp/environments) */
+  environmentDir?: string;
 
   // === Transport ===
   /** Transport type (default: archive) */
@@ -101,7 +100,7 @@ async function waitForDaemon(url: string, timeoutMs: number): Promise<boolean> {
  */
 async function createDefaultConfig(options: AutoDaemonOptions): Promise<DelegatorConfig> {
   const awcpDir = getAwcpDir();
-  const exportsDir = options.exportsDir || join(awcpDir, 'exports');
+  const environmentDir = options.environmentDir || join(awcpDir, 'environments');
   const tempDir = options.tempDir || join(awcpDir, 'temp');
 
   // Create transport based on type
@@ -134,7 +133,7 @@ async function createDefaultConfig(options: AutoDaemonOptions): Promise<Delegato
 
   return {
     environment: {
-      baseDir: exportsDir,
+      baseDir: environmentDir,
     },
     transport,
     admission: {
@@ -154,11 +153,11 @@ async function createDefaultConfig(options: AutoDaemonOptions): Promise<Delegato
  */
 async function ensureDirectories(options: AutoDaemonOptions): Promise<void> {
   const awcpDir = getAwcpDir();
-  const exportsDir = options.exportsDir || join(awcpDir, 'exports');
+  const environmentDir = options.environmentDir || join(awcpDir, 'environments');
   const tempDir = options.tempDir || join(awcpDir, 'temp');
 
   await mkdir(awcpDir, { recursive: true });
-  await mkdir(exportsDir, { recursive: true });
+  await mkdir(environmentDir, { recursive: true });
   await mkdir(tempDir, { recursive: true });
 }
 

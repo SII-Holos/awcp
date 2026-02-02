@@ -5,26 +5,14 @@
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
-  "bin": {
-    "awcp-sshfs": "./bin/awcp-sshfs.js"
-  },
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
-    },
-    "./host": {
-      "types": "./dist/host/index.d.ts",
-      "import": "./dist/host/index.js"
-    },
-    "./remote": {
-      "types": "./dist/remote/index.d.ts",
-      "import": "./dist/remote/index.js"
     }
   },
   "files": [
     "dist",
-    "bin",
     "README.md"
   ],
   "scripts": {

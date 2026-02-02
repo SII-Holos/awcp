@@ -52,7 +52,3 @@ export {
 // --- Utilities ---
 
 export { resolveWorkDir, type WorkDirContext, cleanupStaleDirectories } from './utils/index.js';
-
-// --- Re-export core types ---
-
-export * from '@awcp/core';

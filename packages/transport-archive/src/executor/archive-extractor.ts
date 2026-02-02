@@ -48,15 +48,6 @@ export class ArchiveExtractor {
   }
 
   /**
-   * Apply changes from an uploaded archive to a directory.
-   * This extracts the archive and overwrites existing files.
-   */
-  async applyChanges(archivePath: string, targetDir: string): Promise<void> {
-    // For full upload strategy, we just extract and overwrite
-    await this.extract(archivePath, targetDir);
-  }
-
-  /**
    * Create a ZIP archive from a directory (for uploading results)
    */
   async createArchive(sourceDir: string, archivePath: string): Promise<void> {

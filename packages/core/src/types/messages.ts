@@ -11,7 +11,9 @@ export interface ResourceSpec {
   type: ResourceType;
   source: string;
   mode: AccessMode;
+  /** TODO: Implement file filtering in admission control and transport */
   include?: string[];
+  /** TODO: Implement file filtering in admission control and transport */
   exclude?: string[];
 }
 
@@ -24,6 +26,7 @@ export type AuthType = 'api_key' | 'bearer' | 'oauth2' | 'custom';
 export interface AuthCredential {
   type: AuthType;
   credential: string;
+  /** TODO: Implement auth metadata handling */
   metadata?: Record<string, string>;
 }
 
@@ -63,6 +66,7 @@ export interface ExecutorWorkDir {
   path: string;
 }
 
+/** TODO: Implement sandbox enforcement in executor */
 export interface SandboxProfile {
   cwdOnly?: boolean;
   allowNetwork?: boolean;
@@ -71,6 +75,7 @@ export interface SandboxProfile {
 
 export interface ExecutorConstraints {
   acceptedAccessMode?: AccessMode;
+  /** TODO: Implement TTL validation in delegator before START */
   maxTtlSeconds?: number;
   sandboxProfile?: SandboxProfile;
 }
@@ -172,6 +177,7 @@ export interface TaskStatusEvent extends BaseTaskEvent {
   type: 'status';
   status: 'running' | 'progress';
   message?: string;
+  /** TODO: Implement progress tracking in executor */
   progress?: number;
 }
 

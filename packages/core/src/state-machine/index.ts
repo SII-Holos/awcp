@@ -42,7 +42,7 @@ export type DelegationEvent =
   | { type: 'RECEIVE_ERROR'; message: ErrorMessage }
   | { type: 'SEND_ERROR'; message: ErrorMessage }
   | { type: 'CANCEL' }
-  | { type: 'EXPIRE' };
+  | { type: 'EXPIRE' };  // TODO: Implement lease expiration timer
 
 export interface TransitionResult {
   success: boolean;

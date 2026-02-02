@@ -203,3 +203,13 @@ export class AuthFailedError extends AwcpError {
     this.name = 'AuthFailedError';
   }
 }
+
+/**
+ * Error: Delegation cancelled
+ */
+export class CancelledError extends AwcpError {
+  constructor(reason: string = 'Delegation cancelled', hint?: string, delegationId?: string) {
+    super(ErrorCodes.CANCELLED, reason, hint, delegationId);
+    this.name = 'CancelledError';
+  }
+}

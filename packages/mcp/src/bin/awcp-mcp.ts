@@ -23,9 +23,8 @@ interface ParsedArgs {
   daemonUrl?: string;
   port: number;
 
-  // Export
-  exportsDir?: string;
-  exportStrategy?: 'symlink' | 'bind' | 'worktree';
+  // Environment
+  environmentDir?: string;
 
   // Transport
   transport: 'archive' | 'sshfs';
@@ -84,13 +83,9 @@ function parseArgs(args: string[]): ParsedArgs | null {
         i++;
         break;
 
-      // Export
-      case '--exports-dir':
-        result.exportsDir = nextArg;
-        i++;
-        break;
-      case '--export-strategy':
-        result.exportStrategy = nextArg as 'symlink' | 'bind' | 'worktree';
+      // Environment
+      case '--environment-dir':
+        result.environmentDir = nextArg;
         i++;
         break;
 
@@ -211,8 +206,7 @@ async function main() {
     // Build auto-daemon options from parsed args
     const options: AutoDaemonOptions = {
       port: parsed.port,
-      exportsDir: parsed.exportsDir,
-      exportStrategy: parsed.exportStrategy,
+      environmentDir: parsed.environmentDir,
       transport: parsed.transport,
       maxTotalBytes: parsed.maxTotalBytes,
       maxFileCount: parsed.maxFileCount,
@@ -276,9 +270,8 @@ Daemon Options:
   --daemon-url URL           Use existing Delegator Daemon (skips auto-start)
   --port PORT                Port for daemon (default: 3100)
 
-Export Options:
-  --exports-dir DIR          Directory for exports (default: ~/.awcp/exports)
-  --export-strategy TYPE     Strategy: symlink, bind, worktree (default: symlink)
+Environment Options:
+  --environment-dir DIR      Directory for environments (default: ~/.awcp/environments)
 
 Transport Options:
   --transport TYPE           Transport: archive, sshfs (default: archive)

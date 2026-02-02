@@ -28,6 +28,7 @@ import {
   PROTOCOL_VERSION,
   ErrorCodes,
   AwcpError,
+  CancelledError,
 } from '@awcp/core';
 import { type ExecutorConfig, type ResolvedExecutorConfig, resolveExecutorConfig } from './config.js';
 import { WorkspaceManager } from './workspace-manager.js';
@@ -354,7 +355,7 @@ export class ExecutorService {
       await this.workspace.release(delegation.workPath);
       this.config.hooks.onError?.(
         delegationId,
-        new AwcpError(ErrorCodes.CANCELLED, 'Delegation cancelled by Delegator', undefined, delegationId)
+        new CancelledError('Delegation cancelled by Delegator', undefined, delegationId)
       );
       return;
     }

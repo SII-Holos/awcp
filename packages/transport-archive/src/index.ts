@@ -7,13 +7,4 @@
 
 export { ArchiveTransport } from './archive-transport.js';
 
-export type {
-  ArchiveTransportConfig,
-  ArchiveDelegatorConfig,
-  ArchiveExecutorConfig,
-  ArchiveCreateResult,
-  ArchiveWorkDirInfo,
-} from './types.js';
-
-export { ArchiveCreator } from './delegator/index.js';
-export { ArchiveExtractor } from './executor/index.js';
+export type { ArchiveTransportConfig } from './types.js';
