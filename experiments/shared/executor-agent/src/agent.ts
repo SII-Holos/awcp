@@ -6,6 +6,7 @@
  */
 
 import express from 'express';
+import { join } from 'node:path';
 import { AGENT_CARD_PATH } from '@a2a-js/sdk';
 import { DefaultRequestHandler, InMemoryTaskStore } from '@a2a-js/sdk/server';
 import { agentCardHandler, jsonRpcHandler, UserBuilder } from '@a2a-js/sdk/server/express';
@@ -16,33 +17,40 @@ import { executorAgentCard } from './agent-card.js';
 import { FileOperationExecutor } from './executor.js';
 import { awcpConfig } from './awcp-config.js';
 
-// Create executor instance (shared between A2A and AWCP)
 const executor = new FileOperationExecutor();
 
-// A2A Request Handler
 const requestHandler = new DefaultRequestHandler(
   executorAgentCard,
   new InMemoryTaskStore(),
   executor
 );
 
-// Create Express app
 const app = express();
 
-// A2A endpoints
 app.use(`/${AGENT_CARD_PATH}`, agentCardHandler({ agentCardProvider: requestHandler }));
-app.use('/a2a', jsonRpcHandler({ 
-  requestHandler, 
-  userBuilder: UserBuilder.noAuthentication 
+app.use('/a2a', jsonRpcHandler({
+  requestHandler,
+  userBuilder: UserBuilder.noAuthentication
 }));
 
-// AWCP endpoint with hooks to control executor's working directory
+function resolveWorkDir(ctx: TaskStartContext): string {
+  const { environment, workPath } = ctx;
+  const rwResource = environment.resources.find((r) => r.mode === 'rw');
+  if (rwResource) {
+    return join(workPath, rwResource.name);
+  }
+  if (environment.resources.length === 1) {
+    return join(workPath, environment.resources[0]!.name);
+  }
+  return workPath;
+}
+
 const awcpConfigWithHooks = {
   ...awcpConfig,
   hooks: {
     ...awcpConfig.hooks,
     onTaskStart: (ctx: TaskStartContext) => {
-      executor.setWorkingDirectory(ctx.workPath);
+      executor.setWorkingDirectory(resolveWorkDir(ctx));
       awcpConfig.hooks?.onTaskStart?.(ctx);
     },
     onTaskComplete: (delegationId: string, summary: string) => {
@@ -58,7 +66,6 @@ const awcpConfigWithHooks = {
 
 app.use('/awcp', executorHandler({ executor, config: awcpConfigWithHooks }));
 
-// Start server
 const PORT = parseInt(process.env.PORT || '4001', 10);
 
 app.listen(PORT, () => {

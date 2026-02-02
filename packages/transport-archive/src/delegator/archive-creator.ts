@@ -38,6 +38,7 @@ export class ArchiveCreator {
       cwd: sourceDir,
       ignore: ['.awcp/**'],
       dot: true,
+      follow: true,
     });
     await archive.finalize();
 

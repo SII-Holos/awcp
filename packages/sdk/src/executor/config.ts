@@ -2,7 +2,7 @@
  * AWCP Executor Configuration
  */
 
-import type { InviteMessage, SandboxProfile, AccessMode, ExecutorTransportAdapter, ActiveLease, TaskSpec } from '@awcp/core';
+import type { InviteMessage, SandboxProfile, AccessMode, ExecutorTransportAdapter, ActiveLease, TaskSpec, EnvironmentSpec } from '@awcp/core';
 
 export interface PolicyConstraints {
   maxConcurrentDelegations?: number;
@@ -16,6 +16,7 @@ export interface TaskStartContext {
   workPath: string;
   task: TaskSpec;
   lease: ActiveLease;
+  environment: EnvironmentSpec;
 }
 
 export interface ExecutorHooks {

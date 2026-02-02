@@ -17,6 +17,7 @@ import {
   type ErrorMessage,
   type AwcpMessage,
   type TaskSpec,
+  type EnvironmentSpec,
   type ExecutorConstraints,
   type ExecutorTransportAdapter,
   type TaskEvent,
@@ -41,6 +42,7 @@ interface ActiveDelegation {
   workPath: string;
   task: TaskSpec;
   lease: ActiveLease;
+  environment: EnvironmentSpec;
   startedAt: Date;
   eventEmitter: EventEmitter;
 }
@@ -234,12 +236,13 @@ export class ExecutorService {
       workPath,
       task: pending.invite.task,
       lease: start.lease,
+      environment: pending.invite.environment,
       startedAt: new Date(),
       eventEmitter,
     });
 
     // Task execution runs async - don't await
-    this.executeTask(delegationId, start, workPath, pending.invite.task, start.lease, eventEmitter);
+    this.executeTask(delegationId, start, workPath, pending.invite.task, start.lease, pending.invite.environment, eventEmitter);
   }
 
   private async executeTask(
@@ -248,6 +251,7 @@ export class ExecutorService {
     workPath: string,
     task: TaskSpec,
     lease: ActiveLease,
+    environment: EnvironmentSpec,
     eventEmitter: EventEmitter,
   ): Promise<void> {
     try {
@@ -259,7 +263,7 @@ export class ExecutorService {
         workDir: workPath,
       });
 
-      this.config.hooks.onTaskStart?.({ delegationId, workPath: actualPath, task, lease });
+      this.config.hooks.onTaskStart?.({ delegationId, workPath: actualPath, task, lease, environment });
 
       const statusEvent: TaskStatusEvent = {
         delegationId,

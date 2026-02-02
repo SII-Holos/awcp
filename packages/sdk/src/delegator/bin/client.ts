@@ -13,7 +13,9 @@
  * // Create delegation
  * const result = await client.delegate({
  *   executorUrl: 'http://executor:4001/awcp',
- *   localDir: '/path/to/project',
+ *   environment: {
+ *     resources: [{ name: 'project', type: 'fs', source: '/path/to/project', mode: 'rw' }]
+ *   },
  *   task: { description: 'Fix bug', prompt: '...' },
  * });
  *
@@ -25,7 +27,7 @@
  * ```
  */
 
-import type { Delegation, TaskSpec, AccessMode, AuthCredential } from '@awcp/core';
+import type { Delegation, TaskSpec, AccessMode, AuthCredential, EnvironmentSpec } from '@awcp/core';
 
 /**
  * Parameters for creating a delegation
@@ -33,18 +35,15 @@ import type { Delegation, TaskSpec, AccessMode, AuthCredential } from '@awcp/cor
 export interface DelegateRequest {
   /** URL of the Executor's AWCP endpoint */
   executorUrl: string;
-  /** Local directory to delegate */
-  localDir: string;
+  /** Environment specification with resources to delegate */
+  environment: EnvironmentSpec;
   /** Task specification */
   task: TaskSpec;
   /** TTL in seconds (uses default if not specified) */
   ttlSeconds?: number;
   /** Access mode (uses default if not specified) */
   accessMode?: AccessMode;
-  /** 
-   * Optional authentication for paid/restricted Executor services.
-   * This will be included in the INVITE message.
-   */
+  /** Optional authentication for paid/restricted Executor services */
   auth?: AuthCredential;
 }
 
@@ -64,7 +63,7 @@ export interface ListDelegationsResponse {
     id: string;
     state: string;
     executorUrl: string;
-    localDir: string;
+    environment: EnvironmentSpec;
     createdAt: string;
   }>;
 }

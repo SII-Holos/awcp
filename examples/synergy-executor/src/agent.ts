@@ -6,6 +6,7 @@
  */
 
 import express from 'express';
+import { join } from 'node:path';
 import { AGENT_CARD_PATH } from '@a2a-js/sdk';
 import { DefaultRequestHandler, InMemoryTaskStore } from '@a2a-js/sdk/server';
 import { agentCardHandler, jsonRpcHandler, UserBuilder } from '@a2a-js/sdk/server/express';
@@ -19,20 +20,15 @@ import type { TaskStartContext } from '@awcp/sdk';
 
 const config = loadConfig();
 
-// Create Synergy executor instance
 const executor = new SynergyExecutor(config.synergyUrl);
 
-// A2A Request Handler
 const requestHandler = new DefaultRequestHandler(
   synergyAgentCard,
   new InMemoryTaskStore(),
   executor
 );
 
-// Create Express app
 const app = express();
-
-// A2A endpoints
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 app.use(`/${AGENT_CARD_PATH}`, agentCardHandler({ agentCardProvider: requestHandler }) as any);
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -41,14 +37,25 @@ app.use('/a2a', jsonRpcHandler({
   userBuilder: UserBuilder.noAuthentication
 }) as any);
 
-// AWCP endpoint with hooks to control executor's working directory
+function resolveWorkDir(ctx: TaskStartContext): string {
+  const { environment, workPath } = ctx;
+  const rwResource = environment.resources.find((r) => r.mode === 'rw');
+  if (rwResource) {
+    return join(workPath, rwResource.name);
+  }
+  if (environment.resources.length === 1) {
+    return join(workPath, environment.resources[0]!.name);
+  }
+  return workPath;
+}
+
 const awcpConfigWithHooks = {
   ...awcpConfig,
   hooks: {
     ...awcpConfig.hooks,
     onTaskStart: (ctx: TaskStartContext) => {
-      // Set the executor's working directory with lease info for timeout management
-      executor.setWorkingDirectory(ctx.workPath, {
+      const workDir = resolveWorkDir(ctx);
+      executor.setWorkingDirectory(workDir, {
         leaseExpiresAt: new Date(ctx.lease.expiresAt),
         delegationId: ctx.delegationId,
       });
@@ -68,12 +75,10 @@ const awcpConfigWithHooks = {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 app.use('/awcp', executorHandler({ executor, config: awcpConfigWithHooks }) as any);
 
-// Health check
 app.get('/health', (_req, res) => {
   res.json({ status: 'ok', synergy: config.synergyUrl });
 });
 
-// Start server
 app.listen(config.port, () => {
   console.log('');
   console.log('╔════════════════════════════════════════════════════════════╗');
@@ -86,3 +91,4 @@ app.listen(config.port, () => {
   console.log('╚════════════════════════════════════════════════════════════╝');
   console.log('');
 });
+

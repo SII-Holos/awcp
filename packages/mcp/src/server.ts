@@ -98,7 +98,9 @@ export function createAwcpMcpServer(options: AwcpMcpServerOptions = {}) {
       try {
         const result = await client.delegate({
           executorUrl: peer_url,
-          localDir: normalizedWorkspaceDir,
+          environment: {
+            resources: [{ name: 'workspace', type: 'fs', source: normalizedWorkspaceDir, mode: access_mode ?? 'rw' }],
+          },
           task: { description, prompt },
           ttlSeconds: ttl_seconds ?? defaultTtl,
           accessMode: access_mode ?? 'rw',

@@ -41,7 +41,9 @@ async function main() {
   try {
     const result = await client.delegate({
       executorUrl: EXECUTOR_URL,
-      localDir: workspacePath,
+      environment: {
+        resources: [{ name: 'workspace', type: 'fs', source: workspacePath, mode: 'rw' }],
+      },
       task: {
         description: 'Modify hello.txt',
         prompt: `append hello.txt Modified by AWCP at ${timestamp}`,
