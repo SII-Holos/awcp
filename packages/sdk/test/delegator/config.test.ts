@@ -18,16 +18,16 @@ const mockTransport: DelegatorTransportAdapter = {
 
 describe('resolveDelegatorConfig', () => {
   const minimalConfig: DelegatorConfig = {
-    export: {
-      baseDir: '/custom/exports',
+    environment: {
+      baseDir: '/custom/environments',
     },
     transport: mockTransport,
   };
 
   describe('default values', () => {
-    it('should apply default export strategy', () => {
+    it('should preserve environment baseDir', () => {
       const resolved = resolveDelegatorConfig(minimalConfig);
-      expect(resolved.export.strategy).toBe('symlink');
+      expect(resolved.export.baseDir).toBe('/custom/environments');
     });
 
     it('should apply default admission limits', () => {
@@ -130,7 +130,6 @@ describe('resolveDelegatorConfig', () => {
 
 describe('DEFAULT_DELEGATOR_CONFIG', () => {
   it('should have sensible default values', () => {
-    expect(DEFAULT_DELEGATOR_CONFIG.export.strategy).toBe('symlink');
     expect(DEFAULT_DELEGATOR_CONFIG.admission.maxTotalBytes).toBe(100 * 1024 * 1024); // 100MB
     expect(DEFAULT_DELEGATOR_CONFIG.admission.maxFileCount).toBe(10000);
     expect(DEFAULT_DELEGATOR_CONFIG.admission.maxSingleFileBytes).toBe(50 * 1024 * 1024); // 50MB

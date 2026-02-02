@@ -30,7 +30,7 @@ async function main() {
   const daemon = await startDelegatorDaemon({
     port: PORT,
     delegator: {
-      export: {
+      environment: {
         baseDir: exportsDir,
       },
       transport: new ArchiveTransport({

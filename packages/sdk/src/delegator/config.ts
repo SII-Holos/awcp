@@ -5,13 +5,11 @@
 import type { Delegation, AccessMode, DelegatorTransportAdapter } from '@awcp/core';
 
 /**
- * Export view configuration
+ * Environment builder configuration
  */
-export interface ExportConfig {
-  /** Base directory for export views */
+export interface EnvironmentConfig {
+  /** Base directory for environment directories */
   baseDir: string;
-  /** Strategy for creating export view (default: 'symlink') */
-  strategy?: 'symlink' | 'bind' | 'worktree';
 }
 
 /**
@@ -50,8 +48,8 @@ export interface DelegatorHooks {
  * AWCP Delegator Configuration
  */
 export interface DelegatorConfig {
-  /** Export view configuration */
-  export: ExportConfig;
+  /** Environment builder configuration */
+  environment: EnvironmentConfig;
   /** Transport adapter for data plane */
   transport: DelegatorTransportAdapter;
   /** Admission control */
@@ -66,9 +64,6 @@ export interface DelegatorConfig {
  * Default configuration values
  */
 export const DEFAULT_DELEGATOR_CONFIG = {
-  export: {
-    strategy: 'symlink' as const,
-  },
   admission: {
     maxTotalBytes: 100 * 1024 * 1024, // 100MB
     maxFileCount: 10000,
@@ -101,7 +96,7 @@ export interface ResolvedDelegationDefaults {
  * Resolved configuration with all defaults applied
  */
 export interface ResolvedDelegatorConfig {
-  export: ExportConfig & { strategy: 'symlink' | 'bind' | 'worktree' };
+  export: EnvironmentConfig;
   transport: DelegatorTransportAdapter;
   admission: ResolvedAdmissionConfig;
   defaults: ResolvedDelegationDefaults;
@@ -114,8 +109,7 @@ export interface ResolvedDelegatorConfig {
 export function resolveDelegatorConfig(config: DelegatorConfig): ResolvedDelegatorConfig {
   return {
     export: {
-      baseDir: config.export.baseDir,
-      strategy: config.export.strategy ?? DEFAULT_DELEGATOR_CONFIG.export.strategy,
+      baseDir: config.environment.baseDir,
     },
     transport: config.transport,
     admission: {

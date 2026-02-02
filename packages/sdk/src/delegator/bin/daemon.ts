@@ -50,18 +50,18 @@ export async function startDelegatorDaemon(config: DaemonConfig): Promise<Daemon
    */
   app.post('/delegate', async (req, res) => {
     try {
-      const { executorUrl, localDir, task, ttlSeconds, accessMode } = req.body;
+      const { executorUrl, environment, task, ttlSeconds, accessMode } = req.body;
 
-      if (!executorUrl || !localDir || !task) {
+      if (!executorUrl || !environment || !task) {
         res.status(400).json({
-          error: 'Missing required fields: executorUrl, localDir, task',
+          error: 'Missing required fields: executorUrl, environment, task',
         });
         return;
       }
 
       const delegationId = await service.delegate({
         executorUrl,
-        localDir,
+        environment,
         task,
         ttlSeconds,
         accessMode,

@@ -14,6 +14,30 @@ export type MessageType = 'INVITE' | 'ACCEPT' | 'START' | 'DONE' | 'ERROR';
 export type AccessMode = 'ro' | 'rw';
 
 /**
+ * Resource types for environment
+ */
+export type ResourceType = 'fs';
+
+/**
+ * Resource specification in environment
+ */
+export interface ResourceSpec {
+  name: string;
+  type: ResourceType;
+  source: string;
+  mode: AccessMode;
+  include?: string[];
+  exclude?: string[];
+}
+
+/**
+ * Environment specification - collection of resources for delegation
+ */
+export interface EnvironmentSpec {
+  resources: ResourceSpec[];
+}
+
+/**
  * Authentication types for AWCP protocol-level auth
  */
 export type AuthType = 'api_key' | 'bearer' | 'oauth2' | 'custom';
@@ -68,13 +92,6 @@ export interface LeaseConfig {
 export interface ActiveLease {
   expiresAt: string;
   accessMode: AccessMode;
-}
-
-/**
- * Workspace specification in INVITE
- */
-export interface WorkspaceSpec {
-  exportName: string;
 }
 
 /**
@@ -170,7 +187,7 @@ export interface InviteMessage extends BaseMessage {
   type: 'INVITE';
   task: TaskSpec;
   lease: LeaseConfig;
-  workspace: WorkspaceSpec;
+  environment: EnvironmentSpec;
   requirements?: Requirements;
   auth?: AuthCredential;
 }
@@ -287,7 +304,7 @@ export interface Delegation {
   id: string;
   state: DelegationState;
   peerUrl: string;
-  localDir: string;
+  environment: EnvironmentSpec;
   exportPath?: string;
   task: TaskSpec;
   leaseConfig: LeaseConfig;

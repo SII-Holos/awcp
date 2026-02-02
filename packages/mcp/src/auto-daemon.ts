@@ -133,9 +133,8 @@ async function createDefaultConfig(options: AutoDaemonOptions): Promise<Delegato
   }
 
   return {
-    export: {
+    environment: {
       baseDir: exportsDir,
-      strategy: options.exportStrategy || 'symlink',
     },
     transport,
     admission: {

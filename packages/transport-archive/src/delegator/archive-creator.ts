@@ -34,7 +34,11 @@ export class ArchiveCreator {
     const archive = archiver('zip', { zlib: { level: 6 } });
 
     archive.pipe(writeStream);
-    archive.directory(sourceDir, false);
+    archive.glob('**/*', {
+      cwd: sourceDir,
+      ignore: ['.awcp/**'],
+      dot: true,
+    });
     await archive.finalize();
 
     await new Promise<void>((resolve, reject) => {

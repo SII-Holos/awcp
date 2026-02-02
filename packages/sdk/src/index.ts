@@ -16,6 +16,7 @@ export {
   type DelegatorServiceStatus,
   // Config
   type DelegatorConfig,
+  type EnvironmentConfig,
   type DelegationDefaults,
   type DelegatorHooks,
   // Daemon mode
@@ -31,8 +32,14 @@ export {
   type AdmissionConfig,
   type AdmissionResult,
   type WorkspaceStats,
-  ExportManager,
+  EnvironmentBuilder,
+  type EnvironmentManifest,
+  type EnvironmentBuildResult,
   ExecutorClient,
+  // Resource Adapters
+  type ResourceAdapter,
+  ResourceAdapterRegistry,
+  FsResourceAdapter,
 } from './delegator/index.js';
 
 // ============================================

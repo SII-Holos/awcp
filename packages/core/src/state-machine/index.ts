@@ -2,6 +2,7 @@ import type {
   DelegationState,
   AwcpMessage,
   Delegation,
+  EnvironmentSpec,
   InviteMessage,
   AcceptMessage,
   StartMessage,
@@ -155,7 +156,7 @@ export class DelegationStateMachine {
 export function createDelegation(params: {
   id: string;
   peerUrl: string;
-  localDir: string;
+  environment: EnvironmentSpec;
   task: Delegation['task'];
   leaseConfig: Delegation['leaseConfig'];
 }): Delegation {
@@ -164,7 +165,7 @@ export function createDelegation(params: {
     id: params.id,
     state: 'created',
     peerUrl: params.peerUrl,
-    localDir: params.localDir,
+    environment: params.environment,
     task: params.task,
     leaseConfig: params.leaseConfig,
     createdAt: now,

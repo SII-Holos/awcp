@@ -7,7 +7,7 @@ export {
 } from './service.js';
 export {
   type DelegatorConfig,
-  type ExportConfig,
+  type EnvironmentConfig,
   type AdmissionConfig as DelegatorAdmissionConfig,
   type DelegationDefaults,
   type DelegatorHooks,
@@ -31,5 +31,6 @@ export {
 
 // Utilities
 export { AdmissionController, type AdmissionConfig, type AdmissionResult, type WorkspaceStats } from './admission.js';
-export { ExportManager } from './export-manager.js';
+export { EnvironmentBuilder, type EnvironmentManifest, type EnvironmentBuildResult, type EnvironmentBuilderConfig } from './environment-builder.js';
 export { ExecutorClient, type InviteResponse } from './executor-client.js';
+export { type ResourceAdapter, ResourceAdapterRegistry, FsResourceAdapter } from './resource-adapters/index.js';
