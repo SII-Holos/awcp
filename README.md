@@ -211,6 +211,7 @@ See [examples/synergy-executor](examples/synergy-executor) for a complete Execut
 ## Documentation
 
 - **[Protocol Specification](docs/v1.md)** — Complete protocol design and message formats
+- **[Architecture Diagrams](docs/architecture.md)** — Visual overview of system components and data flow
 - **[MCP Tools Reference](packages/mcp/README.md)** — Configuration options for Claude Desktop
 - **[Development Guide](AGENTS.md)** — Architecture and contribution guidelines
 
