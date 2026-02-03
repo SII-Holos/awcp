@@ -81,6 +81,7 @@ jobs:
           cd packages/core && npm publish --access public --tag $TAG
           cd ../transport-sshfs && npm publish --access public --tag $TAG
           cd ../transport-archive && npm publish --access public --tag $TAG
+          cd ../transport-storage && npm publish --access public --tag $TAG
           cd ../sdk && npm publish --access public --tag $TAG
           cd ../mcp && npm publish --access public --tag $TAG
         env:

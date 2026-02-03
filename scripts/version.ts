@@ -22,6 +22,7 @@ const PACKAGES = [
   'packages/core',
   'packages/transport-sshfs',
   'packages/transport-archive',
+  'packages/transport-storage',
   'packages/sdk',
   'packages/mcp',
 ];
