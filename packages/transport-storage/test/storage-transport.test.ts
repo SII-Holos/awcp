@@ -18,9 +18,30 @@ describe('StorageTransport', () => {
     storageDir = path.join(tempDir, 'storage');
     await fs.promises.mkdir(storageDir, { recursive: true });
 
-    // Start a simple HTTP server to serve files
+    // Start a simple HTTP server to serve and accept files
     server = http.createServer(async (req, res) => {
       const filePath = path.join(storageDir, req.url!);
+      
+      if (req.method === 'PUT') {
+        // Handle file uploads
+        const chunks: Buffer[] = [];
+        req.on('data', (chunk) => chunks.push(chunk));
+        req.on('end', async () => {
+          try {
+            const dir = path.dirname(filePath);
+            await fs.promises.mkdir(dir, { recursive: true });
+            await fs.promises.writeFile(filePath, Buffer.concat(chunks));
+            res.writeHead(200);
+            res.end('OK');
+          } catch {
+            res.writeHead(500);
+            res.end('Upload failed');
+          }
+        });
+        return;
+      }
+      
+      // Handle file downloads (GET)
       try {
         const data = await fs.promises.readFile(filePath);
         res.writeHead(200, { 'Content-Type': 'application/zip' });

@@ -65,6 +65,13 @@ export class HttpListener implements ListenerAdapter {
       req.on('close', () => unsubscribe());
     });
 
+    this.router.get('/tasks/:taskId/result', (req, res) => {
+      const { taskId } = req.params;
+      const result = handler.getTaskResult(taskId);
+      const status = result.status === 'not_found' ? 404 : 200;
+      res.status(status).json(result);
+    });
+
     this.router.get('/status', (_req, res) => {
       res.json(handler.getStatus());
     });

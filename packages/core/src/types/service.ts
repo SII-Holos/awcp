@@ -42,12 +42,32 @@ export interface DelegationStatusInfo {
 export interface ExecutorServiceStatus {
   pendingInvitations: number;
   activeDelegations: number;
+  completedDelegations: number;
   delegations: DelegationStatusInfo[];
+}
+
+// --- Task Result (for GET /tasks/:id/result) ---
+
+export type TaskResultStatus = 'running' | 'completed' | 'error' | 'not_applicable' | 'not_found';
+
+export interface TaskResultResponse {
+  status: TaskResultStatus;
+  completedAt?: string;
+  summary?: string;
+  highlights?: string[];
+  resultBase64?: string;
+  error?: {
+    code: string;
+    message: string;
+    hint?: string;
+  };
+  reason?: string;
 }
 
 export interface ExecutorRequestHandler {
   handleMessage(message: AwcpMessage): Promise<AwcpMessage | null>;
   subscribeTask(delegationId: string, callback: (event: TaskEvent) => void): () => void;
+  getTaskResult(delegationId: string): TaskResultResponse;
   cancelDelegation(delegationId: string): Promise<void>;
   getStatus(): ExecutorServiceStatus;
 }

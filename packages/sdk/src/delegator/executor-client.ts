@@ -2,7 +2,7 @@
  * HTTP Client for sending AWCP messages to Executor
  */
 
-import type { AwcpMessage, AcceptMessage, ErrorMessage, TaskEvent } from '@awcp/core';
+import type { AwcpMessage, AcceptMessage, ErrorMessage, TaskEvent, TaskResultResponse } from '@awcp/core';
 
 export type InviteResponse = AcceptMessage | ErrorMessage;
 
@@ -127,6 +127,27 @@ export class ExecutorClient {
         const text = await response.text().catch(() => '');
         throw new Error(`Failed to cancel delegation: ${response.status}${text ? ` - ${text}` : ''}`);
       }
+    } finally {
+      clearTimeout(timeoutId);
+    }
+  }
+
+  /**
+   * Fetch task result from Executor (for offline recovery)
+   */
+  async fetchResult(executorUrl: string, delegationId: string): Promise<TaskResultResponse> {
+    const baseUrl = executorUrl.replace(/\/$/, '').replace(/\/awcp$/, '');
+    const url = `${baseUrl}/awcp/tasks/${delegationId}/result`;
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), this.timeout);
+
+    try {
+      const response = await fetch(url, {
+        headers: { 'Content-Type': 'application/json' },
+        signal: controller.signal,
+      });
+
+      return await response.json() as TaskResultResponse;
     } finally {
       clearTimeout(timeoutId);
     }

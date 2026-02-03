@@ -8,6 +8,7 @@ import { resolveWorkDir, HttpListener, WebSocketTunnelListener } from '@awcp/sdk
 import type { InviteMessage, TransportAdapter, ListenerAdapter } from '@awcp/core';
 import { ArchiveTransport } from '@awcp/transport-archive';
 import { SshfsTransport } from '@awcp/transport-sshfs';
+import { StorageTransport } from '@awcp/transport-storage';
 import type { AppConfig } from './app-config.js';
 import type { OpenClawExecutor } from './openclaw-executor.js';
 import type { OpenClawGatewayManager } from './gateway-manager.js';
@@ -17,6 +18,10 @@ function createTransport(tempDir: string): TransportAdapter {
   if (type === 'sshfs') {
     console.log('[AWCP] Using SSHFS transport');
     return new SshfsTransport();
+  }
+  if (type === 'storage') {
+    console.log('[AWCP] Using Storage transport');
+    return new StorageTransport({ executor: { tempDir } });
   }
   console.log('[AWCP] Using Archive transport');
   return new ArchiveTransport({ executor: { tempDir } });

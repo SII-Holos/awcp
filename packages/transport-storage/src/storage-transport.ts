@@ -33,6 +33,9 @@ export class StorageTransport implements TransportAdapter {
   private tempDir: string;
   private config: StorageTransportConfig;
 
+  /** Store workDirInfo during setup for use in teardown */
+  private activeSetups = new Map<string, StorageWorkDirInfo>();
+
   constructor(config: StorageTransportConfig = {}) {
     this.config = config;
     this.tempDir = config.delegator?.tempDir ?? config.executor?.tempDir ?? path.join(os.tmpdir(), 'awcp-storage');
@@ -131,6 +134,9 @@ export class StorageTransport implements TransportAdapter {
 
     const info = workDirInfo as StorageWorkDirInfo;
 
+    // Store workDirInfo for teardown
+    this.activeSetups.set(delegationId, info);
+
     await fs.promises.mkdir(this.tempDir, { recursive: true });
     const archivePath = path.join(this.tempDir, `${delegationId}.zip`);
 
@@ -158,14 +164,40 @@ export class StorageTransport implements TransportAdapter {
   async teardown(params: TransportTeardownParams): Promise<TransportTeardownResult> {
     const { delegationId, workDir } = params;
 
+    // Get stored workDirInfo
+    const info = this.activeSetups.get(delegationId);
+    this.activeSetups.delete(delegationId);
+
     await fs.promises.mkdir(this.tempDir, { recursive: true });
     const archivePath = path.join(this.tempDir, `${delegationId}-result.zip`);
 
     await createArchive(workDir, archivePath, { exclude: [] });
 
     const buffer = await fs.promises.readFile(archivePath);
-    const resultBase64 = buffer.toString('base64');
 
+    // If we have an upload URL, upload the result and return the URL
+    if (info?.uploadUrl) {
+      const response = await fetch(info.uploadUrl, {
+        method: 'PUT',
+        body: buffer,
+        headers: {
+          'Content-Type': 'application/zip',
+        },
+      });
+
+      await fs.promises.unlink(archivePath);
+
+      if (!response.ok) {
+        throw new TransportError(`Failed to upload result: ${response.status}`);
+      }
+
+      // Return JSON with result URL
+      const resultBase64 = JSON.stringify({ resultUrl: info.uploadUrl });
+      return { resultBase64 };
+    }
+
+    // Fallback: return raw base64 (for compatibility)
+    const resultBase64 = buffer.toString('base64');
     await fs.promises.unlink(archivePath);
 
     return { resultBase64 };

@@ -48,11 +48,14 @@ experiments/**/logs/
 experiments/**/workdir/
 experiments/**/exports/
 experiments/**/temp/
+experiments/**/storage/
+experiments/**/.openclaw/
 
 # Examples runtime directories
 examples/**/logs/
 examples/**/workdir/
 examples/**/temp/
+examples/**/.openclaw/
 
 # SSH keys (never commit)
 *.pem

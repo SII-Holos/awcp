@@ -19,6 +19,7 @@ export interface PolicyConstraints {
   maxTtlSeconds?: number;
   allowedAccessModes?: AccessMode[];
   autoAccept?: boolean;
+  resultRetentionMs?: number;
 }
 
 export interface TaskStartContext {
@@ -53,6 +54,7 @@ export const DEFAULT_EXECUTOR_CONFIG = {
     maxTtlSeconds: 3600,
     allowedAccessModes: ['ro', 'rw'] as AccessMode[],
     autoAccept: true,
+    resultRetentionMs: 30 * 60 * 1000,
   },
   sandbox: {
     cwdOnly: true,
@@ -66,6 +68,7 @@ export interface ResolvedPolicyConstraints {
   maxTtlSeconds: number;
   allowedAccessModes: AccessMode[];
   autoAccept: boolean;
+  resultRetentionMs: number;
 }
 
 export interface ResolvedExecutorConfig {
@@ -87,6 +90,7 @@ export function resolveExecutorConfig(config: ExecutorConfig): ResolvedExecutorC
       maxTtlSeconds: config.policy?.maxTtlSeconds ?? DEFAULT_EXECUTOR_CONFIG.policy.maxTtlSeconds,
       allowedAccessModes: config.policy?.allowedAccessModes ?? [...DEFAULT_EXECUTOR_CONFIG.policy.allowedAccessModes],
       autoAccept: config.policy?.autoAccept ?? DEFAULT_EXECUTOR_CONFIG.policy.autoAccept,
+      resultRetentionMs: config.policy?.resultRetentionMs ?? DEFAULT_EXECUTOR_CONFIG.policy.resultRetentionMs,
     },
     hooks: config.hooks ?? {},
     listeners: config.listeners ?? [],

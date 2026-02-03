@@ -373,6 +373,63 @@ export class DelegatorService implements DelegatorRequestHandler {
     return this.delegations.get(delegationId);
   }
 
+  /**
+   * Fetch result from Executor and apply to original workspace.
+   * Use this when SSE connection was lost and delegation result needs recovery.
+   */
+  async fetchAndApplyResult(delegationId: string): Promise<Delegation> {
+    const delegation = this.delegations.get(delegationId);
+    if (!delegation) {
+      throw new Error(`Unknown delegation: ${delegationId}`);
+    }
+
+    const executorUrl = this.executorUrls.get(delegationId);
+    if (!executorUrl) {
+      throw new Error(`No executor URL for delegation: ${delegationId}`);
+    }
+
+    const result = await this.executorClient.fetchResult(executorUrl, delegationId);
+
+    if (result.status === 'running') {
+      throw new Error('Task still running');
+    }
+
+    if (result.status === 'not_found') {
+      throw new Error('Task result not found or expired');
+    }
+
+    if (result.status === 'not_applicable') {
+      delegation.state = 'completed';
+      delegation.updatedAt = new Date().toISOString();
+      await this.cleanup(delegationId);
+      return delegation;
+    }
+
+    if (result.status === 'error') {
+      delegation.state = 'error';
+      delegation.error = result.error;
+      delegation.updatedAt = new Date().toISOString();
+      await this.cleanup(delegationId);
+      return delegation;
+    }
+
+    if (result.resultBase64) {
+      await this.applyResult(delegationId, result.resultBase64);
+    }
+
+    delegation.state = 'completed';
+    delegation.result = {
+      summary: result.summary ?? '',
+      highlights: result.highlights,
+    };
+    delegation.updatedAt = new Date().toISOString();
+
+    await this.cleanup(delegationId);
+    this.config.hooks.onDelegationCompleted?.(delegation);
+
+    return delegation;
+  }
+
   async waitForCompletion(delegationId: string, timeoutMs: number = 60000): Promise<Delegation> {
     const startTime = Date.now();
 

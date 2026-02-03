@@ -21,6 +21,7 @@ import {
   type ExecutorRequestHandler,
   type ExecutorServiceStatus,
   type TaskExecutor,
+  type TaskResultResponse,
   PROTOCOL_VERSION,
   ErrorCodes,
   AwcpError,
@@ -44,6 +45,22 @@ interface ActiveDelegation {
   eventEmitter: EventEmitter;
 }
 
+interface CompletedDelegation {
+  id: string;
+  completedAt: Date;
+  state: 'completed' | 'error';
+  result?: {
+    summary: string;
+    highlights?: string[];
+    resultBase64?: string;
+  };
+  error?: {
+    code: string;
+    message: string;
+    hint?: string;
+  };
+}
+
 export interface ExecutorServiceOptions {
   executor: TaskExecutor;
   config: ExecutorConfig;
@@ -56,6 +73,7 @@ export class ExecutorService implements ExecutorRequestHandler {
   private workspace: WorkspaceManager;
   private pendingInvitations = new Map<string, PendingInvitation>();
   private activeDelegations = new Map<string, ActiveDelegation>();
+  private completedDelegations = new Map<string, CompletedDelegation>();
 
   constructor(options: ExecutorServiceOptions) {
     this.executor = options.executor;
@@ -282,6 +300,18 @@ export class ExecutorService implements ExecutorRequestHandler {
       eventEmitter.emit('event', doneEvent);
       this.config.hooks.onTaskComplete?.(delegationId, result.summary);
 
+      this.completedDelegations.set(delegationId, {
+        id: delegationId,
+        completedAt: new Date(),
+        state: 'completed',
+        result: {
+          summary: result.summary,
+          highlights: result.highlights,
+          resultBase64: teardownResult.resultBase64,
+        },
+      });
+      this.scheduleResultCleanup(delegationId);
+
       this.activeDelegations.delete(delegationId);
       await this.workspace.release(actualPath);
     } catch (error) {
@@ -305,6 +335,18 @@ export class ExecutorService implements ExecutorRequestHandler {
         delegationId,
         error instanceof Error ? error : new Error(String(error))
       );
+
+      this.completedDelegations.set(delegationId, {
+        id: delegationId,
+        completedAt: new Date(),
+        state: 'error',
+        error: {
+          code: ErrorCodes.TASK_FAILED,
+          message: error instanceof Error ? error.message : String(error),
+          hint: 'Check task requirements and try again',
+        },
+      });
+      this.scheduleResultCleanup(delegationId);
 
       this.activeDelegations.delete(delegationId);
     }
@@ -363,12 +405,53 @@ export class ExecutorService implements ExecutorRequestHandler {
     return {
       pendingInvitations: this.pendingInvitations.size,
       activeDelegations: this.activeDelegations.size,
+      completedDelegations: this.completedDelegations.size,
       delegations: Array.from(this.activeDelegations.values()).map((d) => ({
         id: d.id,
         workPath: d.workPath,
         startedAt: d.startedAt.toISOString(),
       })),
     };
+  }
+
+  getTaskResult(delegationId: string): TaskResultResponse {
+    const active = this.activeDelegations.get(delegationId);
+    if (active) {
+      return { status: 'running' };
+    }
+
+    const completed = this.completedDelegations.get(delegationId);
+    if (completed) {
+      if (completed.state === 'completed') {
+        return {
+          status: 'completed',
+          completedAt: completed.completedAt.toISOString(),
+          summary: completed.result?.summary,
+          highlights: completed.result?.highlights,
+          resultBase64: completed.result?.resultBase64,
+        };
+      }
+      return {
+        status: 'error',
+        completedAt: completed.completedAt.toISOString(),
+        error: completed.error,
+      };
+    }
+
+    if (this.transport.type === 'sshfs') {
+      return {
+        status: 'not_applicable',
+        reason: 'SSHFS transport writes directly to source',
+      };
+    }
+
+    return { status: 'not_found' };
+  }
+
+  private scheduleResultCleanup(delegationId: string): void {
+    setTimeout(() => {
+      this.completedDelegations.delete(delegationId);
+    }, this.config.policy.resultRetentionMs);
   }
 
   private createErrorMessage(
