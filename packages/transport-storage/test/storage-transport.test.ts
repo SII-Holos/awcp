@@ -75,8 +75,9 @@ describe('StorageTransport', () => {
     });
 
     expect(prepareResult.workDirInfo.transport).toBe('storage');
-    expect(prepareResult.workDirInfo.downloadUrl).toContain('http://localhost');
-    expect(prepareResult.workDirInfo.checksum).toMatch(/^[a-f0-9]{64}$/);
+    const storageInfo = prepareResult.workDirInfo as import('@awcp/core').StorageWorkDirInfo;
+    expect(storageInfo.downloadUrl).toContain('http://localhost');
+    expect(storageInfo.checksum).toMatch(/^[a-f0-9]{64}$/);
 
     const workDir = path.join(tempDir, 'work');
     const resultPath = await transport.setup({

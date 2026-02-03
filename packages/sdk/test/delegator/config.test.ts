@@ -7,12 +7,19 @@
 import { describe, it, expect } from 'vitest';
 import { resolveDelegatorConfig, DEFAULT_DELEGATOR_CONFIG } from '../../src/delegator/config.js';
 import type { DelegatorConfig } from '../../src/delegator/config.js';
-import type { DelegatorTransportAdapter } from '@awcp/core';
+import type { DelegatorTransportAdapter, SshfsWorkDirInfo } from '@awcp/core';
 
 // Mock transport adapter
 const mockTransport: DelegatorTransportAdapter = {
   type: 'sshfs',
-  prepare: async () => ({ workDirInfo: { transport: 'sshfs' } }),
+  prepare: async () => ({
+    workDirInfo: {
+      transport: 'sshfs',
+      endpoint: { host: 'localhost', port: 22, user: 'test' },
+      exportLocator: '/tmp/test',
+      credential: { privateKey: '', certificate: '' },
+    } as SshfsWorkDirInfo,
+  }),
   cleanup: async () => {},
 };
 
@@ -27,7 +34,7 @@ describe('resolveDelegatorConfig', () => {
   describe('default values', () => {
     it('should preserve environment baseDir', () => {
       const resolved = resolveDelegatorConfig(minimalConfig);
-      expect(resolved.export.baseDir).toBe('/custom/environments');
+      expect(resolved.environment.baseDir).toBe('/custom/environments');
     });
 
     it('should apply default admission limits', () => {

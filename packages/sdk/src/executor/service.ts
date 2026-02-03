@@ -2,14 +2,7 @@
  * AWCP Executor Service
  */
 
-import { randomUUID } from 'node:crypto';
 import { EventEmitter } from 'node:events';
-import type { Message } from '@a2a-js/sdk';
-import {
-  DefaultExecutionEventBus,
-  type AgentExecutor,
-  type AgentExecutionEvent,
-} from '@a2a-js/sdk/server';
 import {
   type InviteMessage,
   type StartMessage,
@@ -25,6 +18,9 @@ import {
   type TaskDoneEvent,
   type TaskErrorEvent,
   type ActiveLease,
+  type ExecutorRequestHandler,
+  type ExecutorServiceStatus,
+  type TaskExecutor,
   PROTOCOL_VERSION,
   ErrorCodes,
   AwcpError,
@@ -48,23 +44,13 @@ interface ActiveDelegation {
   eventEmitter: EventEmitter;
 }
 
-export interface ExecutorServiceStatus {
-  pendingInvitations: number;
-  activeDelegations: number;
-  delegations: Array<{
-    id: string;
-    workPath: string;
-    startedAt: string;
-  }>;
-}
-
 export interface ExecutorServiceOptions {
-  executor: AgentExecutor;
+  executor: TaskExecutor;
   config: ExecutorConfig;
 }
 
-export class ExecutorService {
-  private executor: AgentExecutor;
+export class ExecutorService implements ExecutorRequestHandler {
+  private executor: TaskExecutor;
   private config: ResolvedExecutorConfig;
   private transport: ExecutorTransportAdapter;
   private workspace: WorkspaceManager;
@@ -275,7 +261,12 @@ export class ExecutorService {
       };
       eventEmitter.emit('event', statusEvent);
 
-      const result = await this.executeViaA2A(actualPath, task, environment);
+      const result = await this.executor.execute({
+        delegationId,
+        workPath: actualPath,
+        task,
+        environment,
+      });
 
       const teardownResult = await this.transport.teardown({ delegationId, workDir: actualPath });
 
@@ -333,7 +324,7 @@ export class ExecutorService {
 
     this.config.hooks.onError?.(
       delegationId,
-      new AwcpError(error.code as any, error.message, error.hint, delegationId)
+      new AwcpError(error.code, error.message, error.hint, delegationId)
     );
   }
 
@@ -368,74 +359,6 @@ export class ExecutorService {
     throw new Error(`Delegation not found: ${delegationId}`);
   }
 
-  private async executeViaA2A(
-    workPath: string,
-    task: TaskSpec,
-    environment: EnvironmentSpec
-  ): Promise<{ summary: string; highlights?: string[] }> {
-    const message: Message = {
-      kind: 'message',
-      messageId: randomUUID(),
-      role: 'user',
-      parts: [
-        { kind: 'text', text: task.prompt },
-        {
-          kind: 'text',
-          text: this.formatAwcpContext(workPath, task, environment),
-        },
-      ],
-    };
-
-    const taskId = randomUUID();
-    const contextId = randomUUID();
-    const requestContext = new RequestContextImpl(message, taskId, contextId);
-
-    const eventBus = new DefaultExecutionEventBus();
-    const results: Message[] = [];
-
-    eventBus.on('event', (event: AgentExecutionEvent) => {
-      if (event.kind === 'message') {
-        results.push(event);
-      }
-    });
-
-    await this.executor.execute(requestContext, eventBus);
-
-    const summary = results
-      .flatMap((m) => m.parts)
-      .filter((p): p is { kind: 'text'; text: string } => p.kind === 'text')
-      .map((p) => p.text)
-      .join('\n');
-
-    return {
-      summary: summary || 'Task completed',
-    };
-  }
-
-  private formatAwcpContext(workPath: string, task: TaskSpec, environment: EnvironmentSpec): string {
-    const lines = [
-      '',
-      '[AWCP Context]',
-      `Task: ${task.description}`,
-      `Root: ${workPath}`,
-      '',
-      'Resources:',
-    ];
-
-    for (const resource of environment.resources) {
-      const resourcePath = `${workPath}/${resource.name}`;
-      lines.push(`  - ${resource.name}: ${resourcePath} (${resource.mode})`);
-    }
-
-    if (environment.resources.length === 1) {
-      const singleResource = environment.resources[0]!;
-      lines.push('');
-      lines.push(`Working directory: ${workPath}/${singleResource.name}`);
-    }
-
-    return lines.join('\n');
-  }
-
   getStatus(): ExecutorServiceStatus {
     return {
       pendingInvitations: this.pendingInvitations.size,
@@ -462,20 +385,5 @@ export class ExecutorService {
       message,
       hint,
     };
-  }
-}
-
-class RequestContextImpl {
-  readonly userMessage: Message;
-  readonly taskId: string;
-  readonly contextId: string;
-  readonly task?: undefined;
-  readonly referenceTasks?: undefined;
-  readonly context?: undefined;
-
-  constructor(userMessage: Message, taskId: string, contextId: string) {
-    this.userMessage = userMessage;
-    this.taskId = taskId;
-    this.contextId = contextId;
   }
 }

@@ -98,19 +98,16 @@ export interface ResolvedDelegationDefaults {
  * Resolved configuration with all defaults applied
  */
 export interface ResolvedDelegatorConfig {
-  export: EnvironmentConfig;
+  environment: EnvironmentConfig;
   transport: DelegatorTransportAdapter;
   admission: ResolvedAdmissionConfig;
   defaults: ResolvedDelegationDefaults;
   hooks: DelegatorHooks;
 }
 
-/**
- * Merge user config with defaults
- */
 export function resolveDelegatorConfig(config: DelegatorConfig): ResolvedDelegatorConfig {
   return {
-    export: {
+    environment: {
       baseDir: config.environment.baseDir,
     },
     transport: config.transport,

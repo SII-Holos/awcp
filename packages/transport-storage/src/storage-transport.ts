@@ -20,6 +20,7 @@ import type {
   DependencyCheckResult,
   StorageWorkDirInfo,
 } from '@awcp/core';
+import { TransportError, ChecksumMismatchError } from '@awcp/core';
 import { createArchive, extractArchive, applyResultToResources } from '@awcp/transport-archive';
 import type { StorageTransportConfig } from './types.js';
 import type { StorageProvider } from './delegator/storage-provider.js';
@@ -41,7 +42,7 @@ export class StorageTransport implements TransportAdapter {
     if (!this.provider) {
       const delegatorConfig = this.config.delegator;
       if (!delegatorConfig?.provider) {
-        throw new Error('Storage provider not configured');
+        throw new TransportError('Storage provider not configured');
       }
       
       if (delegatorConfig.provider.type === 'local') {
@@ -50,7 +51,7 @@ export class StorageTransport implements TransportAdapter {
           baseUrl: delegatorConfig.provider.endpoint!,
         });
       } else {
-        throw new Error(`Storage provider type '${delegatorConfig.provider.type}' not implemented`);
+        throw new TransportError(`Storage provider type '${delegatorConfig.provider.type}' not implemented`);
       }
     }
     return this.provider;
@@ -97,7 +98,7 @@ export class StorageTransport implements TransportAdapter {
 
     const response = await fetch(resultInfo.resultUrl);
     if (!response.ok) {
-      throw new Error(`Failed to download result: ${response.status}`);
+      throw new TransportError(`Failed to download result: ${response.status}`);
     }
     const buffer = Buffer.from(await response.arrayBuffer());
     await fs.promises.writeFile(archivePath, buffer);
@@ -125,7 +126,7 @@ export class StorageTransport implements TransportAdapter {
     const { delegationId, workDirInfo, workDir } = params;
 
     if (workDirInfo.transport !== 'storage') {
-      throw new Error(`StorageTransport: unexpected transport type: ${workDirInfo.transport}`);
+      throw new TransportError(`Unexpected transport type: ${workDirInfo.transport}`);
     }
 
     const info = workDirInfo as StorageWorkDirInfo;
@@ -137,14 +138,14 @@ export class StorageTransport implements TransportAdapter {
       headers: info.headers,
     });
     if (!response.ok) {
-      throw new Error(`Failed to download workspace: ${response.status}`);
+      throw new TransportError(`Failed to download workspace: ${response.status}`);
     }
 
     const buffer = Buffer.from(await response.arrayBuffer());
 
     const hash = crypto.createHash('sha256').update(buffer).digest('hex');
     if (hash !== info.checksum) {
-      throw new Error(`Checksum mismatch: expected ${info.checksum}, got ${hash}`);
+      throw new ChecksumMismatchError(info.checksum, hash);
     }
 
     await fs.promises.writeFile(archivePath, buffer);

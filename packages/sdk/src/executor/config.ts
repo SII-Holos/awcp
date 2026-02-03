@@ -2,7 +2,17 @@
  * AWCP Executor Configuration
  */
 
-import type { InviteMessage, SandboxProfile, AccessMode, ExecutorTransportAdapter, ActiveLease, TaskSpec, EnvironmentSpec } from '@awcp/core';
+import type {
+  InviteMessage,
+  SandboxProfile,
+  AccessMode,
+  ExecutorTransportAdapter,
+  ActiveLease,
+  TaskSpec,
+  EnvironmentSpec,
+  ListenerAdapter,
+  ListenerInfo,
+} from '@awcp/core';
 
 export interface PolicyConstraints {
   maxConcurrentDelegations?: number;
@@ -24,19 +34,17 @@ export interface ExecutorHooks {
   onTaskStart?: (context: TaskStartContext) => void;
   onTaskComplete?: (delegationId: string, summary: string) => void;
   onError?: (delegationId: string, error: Error) => void;
+  onListenerConnected?: (info: ListenerInfo) => void;
+  onListenerDisconnected?: (type: string, error?: Error) => void;
 }
 
 export interface ExecutorConfig {
-  /** Root directory for workspaces */
   workDir: string;
-  /** Transport adapter */
   transport: ExecutorTransportAdapter;
-  /** Sandbox profile */
   sandbox?: SandboxProfile;
-  /** Policy constraints */
   policy?: PolicyConstraints;
-  /** Lifecycle hooks */
   hooks?: ExecutorHooks;
+  listeners?: ListenerAdapter[];
 }
 
 export const DEFAULT_EXECUTOR_CONFIG = {
@@ -66,6 +74,7 @@ export interface ResolvedExecutorConfig {
   sandbox: SandboxProfile;
   policy: ResolvedPolicyConstraints;
   hooks: ExecutorHooks;
+  listeners: ListenerAdapter[];
 }
 
 export function resolveExecutorConfig(config: ExecutorConfig): ResolvedExecutorConfig {
@@ -80,5 +89,6 @@ export function resolveExecutorConfig(config: ExecutorConfig): ResolvedExecutorC
       autoAccept: config.policy?.autoAccept ?? DEFAULT_EXECUTOR_CONFIG.policy.autoAccept,
     },
     hooks: config.hooks ?? {},
+    listeners: config.listeners ?? [],
   };
 }
