@@ -103,7 +103,7 @@ describe('DelegationStateMachine', () => {
         type: 'INVITE',
         delegationId,
         task: { description: 'Test', prompt: 'Test prompt' },
-        environment: { resources: [{ name: 'project', type: 'fs', source: '/path/to/project', mode: 'rw' }] },
+        environment: { resources: [{ name: 'project', type: 'fs', mode: 'rw' }] },
         lease: { ttlSeconds: 3600, accessMode: 'rw' },
       };
       expect(sm.transition({ type: 'SEND_INVITE', message: invite })).toMatchObject({
