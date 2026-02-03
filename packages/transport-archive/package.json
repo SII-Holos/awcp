@@ -1,6 +1,6 @@
 {
   "name": "@awcp/transport-archive",
-  "version": "0.0.9",
+  "version": "0.0.10",
   "description": "AWCP Archive Transport - HTTP-based archive transfer for workspace delegation",
   "type": "module",
   "main": "./dist/index.js",
@@ -22,7 +22,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@awcp/core": "^0.0.9",
+    "@awcp/core": "^0.0.10",
     "archiver": "^7.0.1",
     "yauzl-promise": "^4.0.0"
   },
