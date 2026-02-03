@@ -9,8 +9,6 @@
 export {
   DelegatorService,
   type DelegatorServiceOptions,
-  type DelegateParams,
-  type DelegatorServiceStatus,
   type DelegatorConfig,
   type EnvironmentConfig,
   type DelegationDefaults,
@@ -40,14 +38,23 @@ export {
 export {
   ExecutorService,
   type ExecutorServiceOptions,
-  type ExecutorServiceStatus,
   type ExecutorConfig,
   type PolicyConstraints,
   type ExecutorHooks,
   type TaskStartContext,
   WorkspaceManager,
   type WorkspaceValidation,
+  A2ATaskExecutor,
 } from './executor/index.js';
+
+// --- Listener API ---
+
+export {
+  HttpListener,
+  type HttpListenerConfig,
+  WebSocketTunnelListener,
+  type WebSocketTunnelConfig,
+} from './listener/index.js';
 
 // --- Utilities ---
 

@@ -41,8 +41,9 @@ describe('ArchiveTransport', () => {
     });
 
     expect(prepareResult.workDirInfo.transport).toBe('archive');
-    expect(prepareResult.workDirInfo.workspaceBase64).toBeDefined();
-    expect(prepareResult.workDirInfo.checksum).toMatch(/^[a-f0-9]{64}$/);
+    const archiveInfo = prepareResult.workDirInfo as import('@awcp/core').ArchiveWorkDirInfo;
+    expect(archiveInfo.workspaceBase64).toBeDefined();
+    expect(archiveInfo.checksum).toMatch(/^[a-f0-9]{64}$/);
 
     const workDir = path.join(tempDir, 'work');
     const resultPath = await transport.setup({

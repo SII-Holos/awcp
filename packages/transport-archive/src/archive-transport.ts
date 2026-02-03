@@ -20,6 +20,7 @@ import type {
   DependencyCheckResult,
   ArchiveWorkDirInfo,
 } from '@awcp/core';
+import { TransportError, ChecksumMismatchError } from '@awcp/core';
 import { createArchive, extractArchive, applyResultToResources } from './utils/index.js';
 import type { ArchiveTransportConfig } from './types.js';
 
@@ -94,7 +95,7 @@ export class ArchiveTransport implements TransportAdapter {
     const { delegationId, workDirInfo, workDir } = params;
 
     if (workDirInfo.transport !== 'archive') {
-      throw new Error(`ArchiveTransport: unexpected transport type: ${workDirInfo.transport}`);
+      throw new TransportError(`Unexpected transport type: ${workDirInfo.transport}`);
     }
 
     const info = workDirInfo as ArchiveWorkDirInfo;
@@ -108,7 +109,7 @@ export class ArchiveTransport implements TransportAdapter {
     const hash = crypto.createHash('sha256').update(buffer).digest('hex');
     if (hash !== info.checksum) {
       await fs.promises.unlink(archivePath);
-      throw new Error(`Checksum mismatch: expected ${info.checksum}, got ${hash}`);
+      throw new ChecksumMismatchError(info.checksum, hash);
     }
 
     await extractArchive(archivePath, workDir);

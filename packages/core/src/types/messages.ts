@@ -91,12 +91,7 @@ export interface SshCredential {
   certificate: string;
 }
 
-export interface WorkDirInfo {
-  transport: TransportType;
-  [key: string]: unknown;
-}
-
-export interface SshfsWorkDirInfo extends WorkDirInfo {
+export interface SshfsWorkDirInfo {
   transport: 'sshfs';
   endpoint: SshEndpoint;
   exportLocator: string;
@@ -104,13 +99,13 @@ export interface SshfsWorkDirInfo extends WorkDirInfo {
   options?: Record<string, string>;
 }
 
-export interface ArchiveWorkDirInfo extends WorkDirInfo {
+export interface ArchiveWorkDirInfo {
   transport: 'archive';
   workspaceBase64: string;
   checksum: string;
 }
 
-export interface StorageWorkDirInfo extends WorkDirInfo {
+export interface StorageWorkDirInfo {
   transport: 'storage';
   downloadUrl: string;
   uploadUrl: string;
@@ -118,6 +113,8 @@ export interface StorageWorkDirInfo extends WorkDirInfo {
   expiresAt: string;
   headers?: Record<string, string>;
 }
+
+export type WorkDirInfo = SshfsWorkDirInfo | ArchiveWorkDirInfo | StorageWorkDirInfo;
 
 export interface BaseMessage {
   version: typeof PROTOCOL_VERSION;

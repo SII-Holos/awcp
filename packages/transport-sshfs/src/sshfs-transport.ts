@@ -65,6 +65,9 @@ export class SshfsTransport implements TransportAdapter {
     await this.credentialManager?.revokeCredential(delegationId);
   }
 
+  // SSHFS is live-sync - changes are written directly to mounted filesystem
+  async applyResult(): Promise<void> {}
+
   // ========== Executor Side ==========
 
   async checkDependency(): Promise<DependencyCheckResult> {

@@ -14,6 +14,8 @@ export const ErrorCodes = {
   SETUP_FAILED: 'SETUP_FAILED',
   TASK_FAILED: 'TASK_FAILED',
   CANCELLED: 'CANCELLED',
+  TRANSPORT_ERROR: 'TRANSPORT_ERROR',
+  CHECKSUM_MISMATCH: 'CHECKSUM_MISMATCH',
 } as const;
 
 export type ErrorCode = typeof ErrorCodes[keyof typeof ErrorCodes];
@@ -23,7 +25,7 @@ export type ErrorCode = typeof ErrorCodes[keyof typeof ErrorCodes];
  */
 export class AwcpError extends Error {
   constructor(
-    public readonly code: ErrorCode,
+    public readonly code: string,
     message: string,
     public readonly hint?: string,
     public readonly delegationId?: string,
@@ -211,5 +213,28 @@ export class CancelledError extends AwcpError {
   constructor(reason: string = 'Delegation cancelled', hint?: string, delegationId?: string) {
     super(ErrorCodes.CANCELLED, reason, hint, delegationId);
     this.name = 'CancelledError';
+  }
+}
+
+export class TransportError extends AwcpError {
+  constructor(reason: string, hint?: string, delegationId?: string) {
+    super(ErrorCodes.TRANSPORT_ERROR, reason, hint, delegationId);
+    this.name = 'TransportError';
+  }
+}
+
+export class ChecksumMismatchError extends AwcpError {
+  constructor(
+    public readonly expected: string,
+    public readonly actual: string,
+    delegationId?: string,
+  ) {
+    super(
+      ErrorCodes.CHECKSUM_MISMATCH,
+      `Checksum mismatch: expected ${expected}, got ${actual}`,
+      'The downloaded file may be corrupted, try again',
+      delegationId,
+    );
+    this.name = 'ChecksumMismatchError';
   }
 }
