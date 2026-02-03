@@ -115,7 +115,7 @@
 │       │  │ 1. INVITE                                               │   │             │
 │       │  │    • task: { description, prompt }                      │   │             │
 │       │  │    • lease: { ttlSeconds, accessMode }                  │   │             │
-│       │  │    • environment: { resources[] }  ← name/type/mode only  │   │             │
+│       │  │    • environment: EnvironmentDeclaration                 │   │             │
 │       │  │    • requirements: { transport }                        │   │             │
 │       │  └─────────────────────────────────────────────────────────┘   │             │
 │       │ ─────────────────── POST /awcp ───────────────────────────────►│             │
