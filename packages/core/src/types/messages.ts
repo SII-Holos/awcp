@@ -30,7 +30,7 @@ export interface AuthCredential {
   metadata?: Record<string, string>;
 }
 
-export type TransportType = 'sshfs' | 'archive';
+export type TransportType = 'sshfs' | 'archive' | 'storage';
 
 export type DelegationState =
   | 'created'
@@ -108,6 +108,15 @@ export interface ArchiveWorkDirInfo extends WorkDirInfo {
   transport: 'archive';
   workspaceBase64: string;
   checksum: string;
+}
+
+export interface StorageWorkDirInfo extends WorkDirInfo {
+  transport: 'storage';
+  downloadUrl: string;
+  uploadUrl: string;
+  checksum: string;
+  expiresAt: string;
+  headers?: Record<string, string>;
 }
 
 export interface BaseMessage {

@@ -29,7 +29,7 @@ export interface AutoDaemonOptions {
 
   // === Transport ===
   /** Transport type (default: archive) */
-  transport?: 'archive' | 'sshfs';
+  transport?: 'archive' | 'sshfs' | 'storage';
 
   // === Admission Control ===
   /** Maximum total bytes for workspace (default: 100MB) */
@@ -60,6 +60,12 @@ export interface AutoDaemonOptions {
   sshUser?: string;
   /** Directory for SSH keys (default: ~/.awcp/keys) */
   sshKeyDir?: string;
+
+  // === Storage Transport Options ===
+  /** Storage base URL for download/upload */
+  storageEndpoint?: string;
+  /** Local directory for storage files (for local provider) */
+  storageLocalDir?: string;
 }
 
 /**
@@ -106,7 +112,6 @@ async function createDefaultConfig(options: AutoDaemonOptions): Promise<Delegato
   // Create transport based on type
   let transport;
   if (options.transport === 'sshfs') {
-    // Dynamically import SSHFS transport to avoid requiring it when not used
     const { SshfsTransport } = await import('@awcp/transport-sshfs');
     
     if (!options.sshCaKey) {
@@ -122,8 +127,24 @@ async function createDefaultConfig(options: AutoDaemonOptions): Promise<Delegato
         user: options.sshUser || process.env.USER,
       },
     });
+  } else if (options.transport === 'storage') {
+    const { StorageTransport } = await import('@awcp/transport-storage');
+    
+    if (!options.storageEndpoint) {
+      throw new Error('Storage transport requires --storage-endpoint option');
+    }
+    
+    transport = new StorageTransport({
+      delegator: {
+        provider: {
+          type: 'local',
+          localDir: options.storageLocalDir || join(awcpDir, 'storage'),
+          endpoint: options.storageEndpoint,
+        },
+        tempDir,
+      },
+    });
   } else {
-    // Default to Archive transport (no SSHFS setup required)
     transport = new ArchiveTransport({
       delegator: {
         tempDir,
