@@ -93,22 +93,6 @@ export class EnvironmentBuilder {
     this.environments.delete(delegationId);
   }
 
-  async applyResult(delegationId: string, resultEnvRoot: string): Promise<void> {
-    const env = this.environments.get(delegationId);
-    if (!env) {
-      throw new Error(`No environment found for delegation ${delegationId}`);
-    }
-
-    for (const resource of env.manifest.resources) {
-      if (resource.mode === 'rw') {
-        const sourcePath = join(resultEnvRoot, resource.name);
-        const targetPath = resource.source;
-        const adapter = this.adapters.get(resource.type);
-        await adapter.apply(sourcePath, targetPath);
-      }
-    }
-  }
-
   async cleanupStale(): Promise<number> {
     return cleanupStaleDirectories(this.baseDir, new Set(this.environments.keys()));
   }

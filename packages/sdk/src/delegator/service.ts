@@ -7,7 +7,6 @@
 import { randomUUID } from 'node:crypto';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
-import * as os from 'node:os';
 import {
   type Delegation,
   type TaskSpec,
@@ -288,28 +287,25 @@ export class DelegatorService {
   /**
    * Apply result from Executor back to original workspace
    */
-  private async applyResult(delegationId: string, resultBase64: string): Promise<void> {
+  private async applyResult(delegationId: string, resultData: string): Promise<void> {
+    const delegation = this.delegations.get(delegationId);
+    if (!delegation) return;
+
+    const env = this.environmentBuilder.get(delegationId);
+    if (!env) return;
+
+    const rwResources = delegation.environment.resources.filter(r => r.mode === 'rw');
+    if (rwResources.length === 0) return;
+
     try {
-      const buffer = Buffer.from(resultBase64, 'base64');
-      
-      const tempDir = path.join(os.tmpdir(), 'awcp-results');
-      await fs.mkdir(tempDir, { recursive: true });
-      const archivePath = path.join(tempDir, `${delegationId}-result.zip`);
-      await fs.writeFile(archivePath, buffer);
-
-      const extractDir = path.join(tempDir, delegationId);
-      await fs.mkdir(extractDir, { recursive: true });
-
-      const { exec } = await import('node:child_process');
-      const { promisify } = await import('node:util');
-      const execAsync = promisify(exec);
-      await execAsync(`unzip -o "${archivePath}" -d "${extractDir}"`);
-
-      await this.environmentBuilder.applyResult(delegationId, extractDir);
-
-      await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
-
-      console.log(`[AWCP:Delegator] Applied result for ${delegationId}`);
+      if (this.transport.applyResult) {
+        await this.transport.applyResult({
+          delegationId,
+          resultData,
+          resources: rwResources.map(r => ({ name: r.name, source: r.source, mode: r.mode })),
+        });
+        console.log(`[AWCP:Delegator] Applied result for ${delegationId}`);
+      }
     } catch (error) {
       console.error(`[AWCP:Delegator] Failed to apply result for ${delegationId}:`, error);
     }

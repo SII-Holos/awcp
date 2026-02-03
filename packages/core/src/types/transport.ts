@@ -32,6 +32,18 @@ export interface TransportTeardownResult {
   resultBase64?: string;
 }
 
+export interface ResourceMapping {
+  name: string;
+  source: string;
+  mode: 'ro' | 'rw';
+}
+
+export interface TransportApplyResultParams {
+  delegationId: string;
+  resultData: string;
+  resources: ResourceMapping[];
+}
+
 export interface DependencyCheckResult {
   available: boolean;
   hint?: string;
@@ -40,10 +52,10 @@ export interface DependencyCheckResult {
 /**
  * Transport Adapter Interface
  *
- * All transport implementations (sshfs, archive, etc.) must implement this.
+ * All transport implementations (sshfs, archive, storage, etc.) must implement this.
  *
  * Lifecycle:
- * - Delegator: prepare() -> [task runs] -> cleanup()
+ * - Delegator: prepare() -> [task runs] -> applyResult()? -> cleanup()
  * - Executor: checkDependency() -> setup() -> [task runs] -> teardown()
  */
 export interface TransportAdapter {
@@ -53,6 +65,9 @@ export interface TransportAdapter {
 
   /** Prepare transport after ACCEPT received, before sending START */
   prepare(params: TransportPrepareParams): Promise<TransportPrepareResult>;
+
+  /** Apply result from Executor back to workspace. Optional for live-sync transports. */
+  applyResult?(params: TransportApplyResultParams): Promise<void>;
 
   /** Clean up resources after task completion or expiration */
   cleanup(delegationId: string): Promise<void>;
@@ -73,6 +88,7 @@ export interface TransportAdapter {
 export interface DelegatorTransportAdapter {
   readonly type: TransportType;
   prepare(params: TransportPrepareParams): Promise<TransportPrepareResult>;
+  applyResult?(params: TransportApplyResultParams): Promise<void>;
   cleanup(delegationId: string): Promise<void>;
 }
 

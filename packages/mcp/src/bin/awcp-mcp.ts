@@ -27,7 +27,7 @@ interface ParsedArgs {
   environmentDir?: string;
 
   // Transport
-  transport: 'archive' | 'sshfs';
+  transport: 'archive' | 'sshfs' | 'storage';
 
   // Admission
   maxTotalBytes?: number;
@@ -47,6 +47,10 @@ interface ParsedArgs {
   sshPort?: number;
   sshUser?: string;
   sshKeyDir?: string;
+
+  // Storage transport
+  storageEndpoint?: string;
+  storageLocalDir?: string;
 
   // Peers
   peerUrls: string[];
@@ -91,7 +95,7 @@ function parseArgs(args: string[]): ParsedArgs | null {
 
       // Transport
       case '--transport':
-        result.transport = nextArg as 'archive' | 'sshfs';
+        result.transport = nextArg as 'archive' | 'sshfs' | 'storage';
         i++;
         break;
 
@@ -144,6 +148,16 @@ function parseArgs(args: string[]): ParsedArgs | null {
         break;
       case '--ssh-key-dir':
         result.sshKeyDir = nextArg;
+        i++;
+        break;
+
+      // Storage transport
+      case '--storage-endpoint':
+        result.storageEndpoint = nextArg;
+        i++;
+        break;
+      case '--storage-local-dir':
+        result.storageLocalDir = nextArg;
         i++;
         break;
 
@@ -219,6 +233,8 @@ async function main() {
       sshPort: parsed.sshPort,
       sshUser: parsed.sshUser,
       sshKeyDir: parsed.sshKeyDir,
+      storageEndpoint: parsed.storageEndpoint,
+      storageLocalDir: parsed.storageLocalDir,
     };
 
     const result = await ensureDaemonRunning(options);
@@ -274,7 +290,7 @@ Environment Options:
   --environment-dir DIR      Directory for environments (default: ~/.awcp/environments)
 
 Transport Options:
-  --transport TYPE           Transport: archive, sshfs (default: archive)
+  --transport TYPE           Transport: archive, sshfs, storage (default: archive)
 
 Admission Control:
   --max-total-bytes N        Max workspace size in bytes (default: 100MB)
@@ -294,6 +310,10 @@ SSHFS Transport Options:
   --ssh-port PORT            SSH server port (default: 22)
   --ssh-user USER            SSH username (default: current user)
   --ssh-key-dir DIR          SSH key directory (default: ~/.awcp/keys)
+
+Storage Transport Options:
+  --storage-endpoint URL     Storage endpoint URL (required for storage)
+  --storage-local-dir DIR    Local directory for storage files
 
 Peer Discovery:
   --peers URL,...            Comma-separated list of executor base URLs

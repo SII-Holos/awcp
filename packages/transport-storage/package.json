@@ -1,7 +1,7 @@
 {
-  "name": "@awcp/core",
+  "name": "@awcp/transport-storage",
   "version": "0.0.9",
-  "description": "AWCP Protocol Core - Types, State Machine, and Error Definitions",
+  "description": "AWCP Storage Transport - URL-based storage transfer for workspace delegation",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -9,14 +9,6 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
-    },
-    "./types": {
-      "types": "./dist/types/index.d.ts",
-      "import": "./dist/types/index.js"
-    },
-    "./errors": {
-      "types": "./dist/errors/index.d.ts",
-      "import": "./dist/errors/index.js"
     }
   },
   "files": [
@@ -29,16 +21,21 @@
     "test": "vitest run",
     "test:watch": "vitest"
   },
+  "dependencies": {
+    "@awcp/core": "^0.0.9",
+    "@awcp/transport-archive": "^0.0.9"
+  },
   "keywords": [
     "awcp",
-    "agent",
-    "protocol",
-    "a2a"
+    "storage",
+    "transport",
+    "s3",
+    "url"
   ],
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
     "url": "https://github.com/anthropics/awcp.git",
-    "directory": "packages/core"
+    "directory": "packages/transport-storage"
   }
 }

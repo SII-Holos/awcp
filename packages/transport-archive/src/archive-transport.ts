@@ -16,19 +16,18 @@ import type {
   TransportSetupParams,
   TransportTeardownParams,
   TransportTeardownResult,
+  TransportApplyResultParams,
   DependencyCheckResult,
   ArchiveWorkDirInfo,
 } from '@awcp/core';
-import { ArchiveCreator } from './delegator/archive-creator.js';
-import { ArchiveExtractor } from './executor/archive-extractor.js';
+import { createArchive, extractArchive, applyResultToResources } from './utils/index.js';
 import type { ArchiveTransportConfig } from './types.js';
 
 export class ArchiveTransport implements TransportAdapter {
   readonly type = 'archive' as const;
 
-  private creator?: ArchiveCreator;
-  private extractor?: ArchiveExtractor;
   private tempDir: string;
+  private archives = new Map<string, string>();
 
   constructor(config: ArchiveTransportConfig = {}) {
     this.tempDir = config.delegator?.tempDir ?? config.executor?.tempDir ?? path.join(os.tmpdir(), 'awcp-archives');
@@ -39,23 +38,50 @@ export class ArchiveTransport implements TransportAdapter {
   async prepare(params: TransportPrepareParams): Promise<TransportPrepareResult> {
     const { delegationId, exportPath } = params;
 
-    if (!this.creator) {
-      this.creator = new ArchiveCreator({ tempDir: this.tempDir });
-    }
+    await fs.promises.mkdir(this.tempDir, { recursive: true });
+    const archivePath = path.join(this.tempDir, `${delegationId}.zip`);
 
-    const result = await this.creator.create(delegationId, exportPath);
+    await createArchive(exportPath, archivePath);
+
+    const buffer = await fs.promises.readFile(archivePath);
+    const checksum = crypto.createHash('sha256').update(buffer).digest('hex');
+    const base64 = buffer.toString('base64');
+
+    this.archives.set(delegationId, archivePath);
 
     const workDirInfo: ArchiveWorkDirInfo = {
       transport: 'archive',
-      workspaceBase64: result.base64,
-      checksum: result.checksum,
+      workspaceBase64: base64,
+      checksum,
     };
 
     return { workDirInfo };
   }
 
   async cleanup(delegationId: string): Promise<void> {
-    await this.creator?.cleanup(delegationId);
+    const archivePath = this.archives.get(delegationId);
+    if (archivePath) {
+      await fs.promises.unlink(archivePath).catch(() => {});
+      this.archives.delete(delegationId);
+    }
+  }
+
+  async applyResult(params: TransportApplyResultParams): Promise<void> {
+    const { delegationId, resultData, resources } = params;
+
+    await fs.promises.mkdir(this.tempDir, { recursive: true });
+    const archivePath = path.join(this.tempDir, `${delegationId}-apply.zip`);
+    const extractDir = path.join(this.tempDir, `${delegationId}-apply`);
+
+    const buffer = Buffer.from(resultData, 'base64');
+    await fs.promises.writeFile(archivePath, buffer);
+
+    await extractArchive(archivePath, extractDir);
+    await fs.promises.unlink(archivePath);
+
+    await applyResultToResources(extractDir, resources);
+
+    await fs.promises.rm(extractDir, { recursive: true, force: true });
   }
 
   // ========== Executor Side ==========
@@ -73,28 +99,19 @@ export class ArchiveTransport implements TransportAdapter {
 
     const info = workDirInfo as ArchiveWorkDirInfo;
 
-    if (!this.extractor) {
-      this.extractor = new ArchiveExtractor();
-    }
-
     await fs.promises.mkdir(this.tempDir, { recursive: true });
     const archivePath = path.join(this.tempDir, `${delegationId}.zip`);
 
-    // Decode base64 and write to file
     const buffer = Buffer.from(info.workspaceBase64, 'base64');
     await fs.promises.writeFile(archivePath, buffer);
 
-    // Verify checksum
     const hash = crypto.createHash('sha256').update(buffer).digest('hex');
     if (hash !== info.checksum) {
       await fs.promises.unlink(archivePath);
       throw new Error(`Checksum mismatch: expected ${info.checksum}, got ${hash}`);
     }
 
-    // Extract to work directory
-    await this.extractor.extract(archivePath, workDir);
-
-    // Clean up archive file
+    await extractArchive(archivePath, workDir);
     await fs.promises.unlink(archivePath);
 
     return workDir;
@@ -103,21 +120,14 @@ export class ArchiveTransport implements TransportAdapter {
   async teardown(params: TransportTeardownParams): Promise<TransportTeardownResult> {
     const { delegationId, workDir } = params;
 
-    if (!this.extractor) {
-      this.extractor = new ArchiveExtractor();
-    }
-
     await fs.promises.mkdir(this.tempDir, { recursive: true });
     const archivePath = path.join(this.tempDir, `${delegationId}-result.zip`);
 
-    // Create archive from work directory
-    await this.extractor.createArchive(workDir, archivePath);
+    await createArchive(workDir, archivePath, { exclude: [] });
 
-    // Read as base64
     const buffer = await fs.promises.readFile(archivePath);
     const resultBase64 = buffer.toString('base64');
 
-    // Clean up
     await fs.promises.unlink(archivePath);
 
     return { resultBase64 };
@@ -126,6 +136,9 @@ export class ArchiveTransport implements TransportAdapter {
   // ========== Lifecycle ==========
 
   async shutdown(): Promise<void> {
-    await this.creator?.cleanupAll();
+    for (const archivePath of this.archives.values()) {
+      await fs.promises.unlink(archivePath).catch(() => {});
+    }
+    this.archives.clear();
   }
 }
