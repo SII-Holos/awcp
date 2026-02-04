@@ -6,6 +6,7 @@
 
 import type {
   TransportAdapter,
+  TransportCapabilities,
   TransportPrepareParams,
   TransportPrepareResult,
   TransportSetupParams,
@@ -20,6 +21,10 @@ import type { SshfsTransportConfig } from './types.js';
 
 export class SshfsTransport implements TransportAdapter {
   readonly type = 'sshfs' as const;
+  readonly capabilities: TransportCapabilities = {
+    supportsSnapshots: false,
+    liveSync: true,
+  };
 
   private config: SshfsTransportConfig;
   private credentialManager?: CredentialManager;
@@ -64,9 +69,6 @@ export class SshfsTransport implements TransportAdapter {
   async cleanup(delegationId: string): Promise<void> {
     await this.credentialManager?.revokeCredential(delegationId);
   }
-
-  // SSHFS is live-sync - changes are written directly to mounted filesystem
-  async applyResult(): Promise<void> {}
 
   // ========== Executor Side ==========
 

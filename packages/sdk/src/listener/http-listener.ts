@@ -72,6 +72,11 @@ export class HttpListener implements ListenerAdapter {
       res.status(status).json(result);
     });
 
+    this.router.post('/tasks/:taskId/ack', (req, res) => {
+      handler.acknowledgeResult(req.params.taskId);
+      res.json({ ok: true });
+    });
+
     this.router.get('/status', (_req, res) => {
       res.json(handler.getStatus());
     });

@@ -5,13 +5,16 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { resolveDelegatorConfig, DEFAULT_DELEGATOR_CONFIG } from '../../src/delegator/config.js';
+import { resolveDelegatorConfig, DEFAULT_ADMISSION, DEFAULT_DELEGATION, DEFAULT_SNAPSHOT } from '../../src/delegator/config.js';
 import type { DelegatorConfig } from '../../src/delegator/config.js';
 import type { DelegatorTransportAdapter, SshfsWorkDirInfo } from '@awcp/core';
 
-// Mock transport adapter
 const mockTransport: DelegatorTransportAdapter = {
   type: 'sshfs',
+  capabilities: {
+    supportsSnapshots: false,
+    liveSync: true,
+  },
   prepare: async () => ({
     workDirInfo: {
       transport: 'sshfs',
@@ -25,23 +28,28 @@ const mockTransport: DelegatorTransportAdapter = {
 
 describe('resolveDelegatorConfig', () => {
   const minimalConfig: DelegatorConfig = {
-    environment: {
-      baseDir: '/custom/environments',
-    },
+    baseDir: '/custom/delegations',
     transport: mockTransport,
   };
 
   describe('default values', () => {
-    it('should preserve environment baseDir', () => {
+    it('should preserve baseDir', () => {
       const resolved = resolveDelegatorConfig(minimalConfig);
-      expect(resolved.environment.baseDir).toBe('/custom/environments');
+      expect(resolved.baseDir).toBe('/custom/delegations');
     });
 
     it('should apply default admission limits', () => {
       const resolved = resolveDelegatorConfig(minimalConfig);
-      expect(resolved.admission.maxTotalBytes).toBe(DEFAULT_DELEGATOR_CONFIG.admission.maxTotalBytes);
-      expect(resolved.admission.maxFileCount).toBe(DEFAULT_DELEGATOR_CONFIG.admission.maxFileCount);
-      expect(resolved.admission.maxSingleFileBytes).toBe(DEFAULT_DELEGATOR_CONFIG.admission.maxSingleFileBytes);
+      expect(resolved.admission.maxTotalBytes).toBe(DEFAULT_ADMISSION.maxTotalBytes);
+      expect(resolved.admission.maxFileCount).toBe(DEFAULT_ADMISSION.maxFileCount);
+      expect(resolved.admission.maxSingleFileBytes).toBe(DEFAULT_ADMISSION.maxSingleFileBytes);
+    });
+
+    it('should apply default snapshot policy', () => {
+      const resolved = resolveDelegatorConfig(minimalConfig);
+      expect(resolved.snapshot.mode).toBe(DEFAULT_SNAPSHOT.mode);
+      expect(resolved.snapshot.retentionMs).toBe(DEFAULT_SNAPSHOT.retentionMs);
+      expect(resolved.snapshot.maxSnapshots).toBe(DEFAULT_SNAPSHOT.maxSnapshots);
     });
 
     it('should apply default TTL and access mode', () => {
@@ -61,9 +69,9 @@ describe('resolveDelegatorConfig', () => {
       const config: DelegatorConfig = {
         ...minimalConfig,
         admission: {
-          maxTotalBytes: 50 * 1024 * 1024, // 50MB
+          maxTotalBytes: 50 * 1024 * 1024,
           maxFileCount: 500,
-          maxSingleFileBytes: 10 * 1024 * 1024, // 10MB
+          maxSingleFileBytes: 10 * 1024 * 1024,
         },
       };
 
@@ -71,6 +79,22 @@ describe('resolveDelegatorConfig', () => {
       expect(resolved.admission.maxTotalBytes).toBe(50 * 1024 * 1024);
       expect(resolved.admission.maxFileCount).toBe(500);
       expect(resolved.admission.maxSingleFileBytes).toBe(10 * 1024 * 1024);
+    });
+
+    it('should preserve custom snapshot policy', () => {
+      const config: DelegatorConfig = {
+        ...minimalConfig,
+        snapshot: {
+          mode: 'staged',
+          retentionMs: 60 * 60 * 1000,
+          maxSnapshots: 5,
+        },
+      };
+
+      const resolved = resolveDelegatorConfig(config);
+      expect(resolved.snapshot.mode).toBe('staged');
+      expect(resolved.snapshot.retentionMs).toBe(60 * 60 * 1000);
+      expect(resolved.snapshot.maxSnapshots).toBe(5);
     });
 
     it('should preserve custom defaults', () => {
@@ -110,37 +134,60 @@ describe('resolveDelegatorConfig', () => {
       const config: DelegatorConfig = {
         ...minimalConfig,
         admission: {
-          maxFileCount: 100, // Only override this one
+          maxFileCount: 100,
         },
       };
 
       const resolved = resolveDelegatorConfig(config);
       expect(resolved.admission.maxFileCount).toBe(100);
-      expect(resolved.admission.maxTotalBytes).toBe(DEFAULT_DELEGATOR_CONFIG.admission.maxTotalBytes);
-      expect(resolved.admission.maxSingleFileBytes).toBe(DEFAULT_DELEGATOR_CONFIG.admission.maxSingleFileBytes);
+      expect(resolved.admission.maxTotalBytes).toBe(DEFAULT_ADMISSION.maxTotalBytes);
+      expect(resolved.admission.maxSingleFileBytes).toBe(DEFAULT_ADMISSION.maxSingleFileBytes);
+    });
+
+    it('should merge partial snapshot config with defaults', () => {
+      const config: DelegatorConfig = {
+        ...minimalConfig,
+        snapshot: {
+          mode: 'staged',
+        },
+      };
+
+      const resolved = resolveDelegatorConfig(config);
+      expect(resolved.snapshot.mode).toBe('staged');
+      expect(resolved.snapshot.retentionMs).toBe(DEFAULT_SNAPSHOT.retentionMs);
+      expect(resolved.snapshot.maxSnapshots).toBe(DEFAULT_SNAPSHOT.maxSnapshots);
     });
 
     it('should merge partial defaults with defaults', () => {
       const config: DelegatorConfig = {
         ...minimalConfig,
         defaults: {
-          ttlSeconds: 1800, // Only override TTL
+          ttlSeconds: 1800,
         },
       };
 
       const resolved = resolveDelegatorConfig(config);
       expect(resolved.defaults.ttlSeconds).toBe(1800);
-      expect(resolved.defaults.accessMode).toBe('rw'); // Default
+      expect(resolved.defaults.accessMode).toBe('rw');
     });
   });
 });
 
-describe('DEFAULT_DELEGATOR_CONFIG', () => {
-  it('should have sensible default values', () => {
-    expect(DEFAULT_DELEGATOR_CONFIG.admission.maxTotalBytes).toBe(100 * 1024 * 1024); // 100MB
-    expect(DEFAULT_DELEGATOR_CONFIG.admission.maxFileCount).toBe(10000);
-    expect(DEFAULT_DELEGATOR_CONFIG.admission.maxSingleFileBytes).toBe(50 * 1024 * 1024); // 50MB
-    expect(DEFAULT_DELEGATOR_CONFIG.defaults.ttlSeconds).toBe(3600);
-    expect(DEFAULT_DELEGATOR_CONFIG.defaults.accessMode).toBe('rw');
+describe('DEFAULT constants', () => {
+  it('should have sensible admission values', () => {
+    expect(DEFAULT_ADMISSION.maxTotalBytes).toBe(100 * 1024 * 1024);
+    expect(DEFAULT_ADMISSION.maxFileCount).toBe(10000);
+    expect(DEFAULT_ADMISSION.maxSingleFileBytes).toBe(50 * 1024 * 1024);
+  });
+
+  it('should have sensible snapshot values', () => {
+    expect(DEFAULT_SNAPSHOT.mode).toBe('auto');
+    expect(DEFAULT_SNAPSHOT.retentionMs).toBe(30 * 60 * 1000);
+    expect(DEFAULT_SNAPSHOT.maxSnapshots).toBe(10);
+  });
+
+  it('should have sensible delegation defaults', () => {
+    expect(DEFAULT_DELEGATION.ttlSeconds).toBe(3600);
+    expect(DEFAULT_DELEGATION.accessMode).toBe('rw');
   });
 });

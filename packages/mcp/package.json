@@ -1,6 +1,6 @@
 {
   "name": "@awcp/mcp",
-  "version": "0.0.10",
+  "version": "0.0.11",
   "description": "MCP tools for AWCP delegation",
   "type": "module",
   "main": "dist/index.js",
@@ -21,10 +21,11 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@awcp/sdk": "^0.0.10",
-    "@awcp/core": "^0.0.10",
-    "@awcp/transport-archive": "^0.0.10",
-    "@awcp/transport-sshfs": "^0.0.10",
+    "@awcp/sdk": "^0.0.11",
+    "@awcp/core": "^0.0.11",
+    "@awcp/transport-archive": "^0.0.11",
+    "@awcp/transport-sshfs": "^0.0.11",
+    "@awcp/transport-git": "^0.0.11",
     "@a2a-js/sdk": "^0.3.5",
     "@modelcontextprotocol/sdk": "^1.0.0",
     "zod": "^3.23.0"

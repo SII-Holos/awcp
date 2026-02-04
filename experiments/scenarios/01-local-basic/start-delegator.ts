@@ -25,9 +25,7 @@ async function main() {
   const daemon = await startDelegatorDaemon({
     port: PORT,
     delegator: {
-      environment: {
-        baseDir: exportsDir,
-      },
+      baseDir: exportsDir,
       transport: new SshfsTransport({
         delegator: {
           host: 'localhost',

@@ -62,8 +62,9 @@ async function main() {
     console.log('╚════════════════════════════════════════════════════════════╝');
     console.log('');
     console.log(`State:   ${delegation.state}`);
-    if (delegation.result) {
-      console.log(`Summary: ${delegation.result.summary}`);
+    const appliedSnapshot = delegation.snapshots?.find(s => s.status === 'applied');
+    if (appliedSnapshot) {
+      console.log(`Summary: ${appliedSnapshot.summary}`);
     }
     if (delegation.error) {
       console.log(`Error:   ${delegation.error.message}`);

@@ -11,12 +11,13 @@ import * as os from 'node:os';
 import * as crypto from 'node:crypto';
 import type {
   TransportAdapter,
+  TransportCapabilities,
   TransportPrepareParams,
   TransportPrepareResult,
   TransportSetupParams,
   TransportTeardownParams,
   TransportTeardownResult,
-  TransportApplyResultParams,
+  TransportApplySnapshotParams,
   DependencyCheckResult,
   ArchiveWorkDirInfo,
 } from '@awcp/core';
@@ -26,6 +27,10 @@ import type { ArchiveTransportConfig } from './types.js';
 
 export class ArchiveTransport implements TransportAdapter {
   readonly type = 'archive' as const;
+  readonly capabilities: TransportCapabilities = {
+    supportsSnapshots: true,
+    liveSync: false,
+  };
 
   private tempDir: string;
   private archives = new Map<string, string>();
@@ -67,14 +72,14 @@ export class ArchiveTransport implements TransportAdapter {
     }
   }
 
-  async applyResult(params: TransportApplyResultParams): Promise<void> {
-    const { delegationId, resultData, resources } = params;
+  async applySnapshot(params: TransportApplySnapshotParams): Promise<void> {
+    const { delegationId, snapshotData, resources } = params;
 
     await fs.promises.mkdir(this.tempDir, { recursive: true });
     const archivePath = path.join(this.tempDir, `${delegationId}-apply.zip`);
     const extractDir = path.join(this.tempDir, `${delegationId}-apply`);
 
-    const buffer = Buffer.from(resultData, 'base64');
+    const buffer = Buffer.from(snapshotData, 'base64');
     await fs.promises.writeFile(archivePath, buffer);
 
     await extractArchive(archivePath, extractDir);
@@ -127,11 +132,11 @@ export class ArchiveTransport implements TransportAdapter {
     await createArchive(workDir, archivePath, { exclude: [] });
 
     const buffer = await fs.promises.readFile(archivePath);
-    const resultBase64 = buffer.toString('base64');
+    const snapshotBase64 = buffer.toString('base64');
 
     await fs.promises.unlink(archivePath);
 
-    return { resultBase64 };
+    return { snapshotBase64 };
   }
 
   // ========== Lifecycle ==========

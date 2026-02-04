@@ -4,6 +4,11 @@
 
 import type { TransportType, WorkDirInfo } from './messages.js';
 
+export interface TransportCapabilities {
+  supportsSnapshots: boolean;
+  liveSync: boolean;
+}
+
 export interface TransportPrepareParams {
   delegationId: string;
   exportPath: string;
@@ -26,7 +31,7 @@ export interface TransportTeardownParams {
 }
 
 export interface TransportTeardownResult {
-  resultBase64?: string;
+  snapshotBase64?: string;
 }
 
 export interface ResourceMapping {
@@ -35,9 +40,9 @@ export interface ResourceMapping {
   mode: 'ro' | 'rw';
 }
 
-export interface TransportApplyResultParams {
+export interface TransportApplySnapshotParams {
   delegationId: string;
-  resultData: string;
+  snapshotData: string;
   resources: ResourceMapping[];
 }
 
@@ -49,14 +54,17 @@ export interface DependencyCheckResult {
 /** Transport adapter for Delegator side */
 export interface DelegatorTransportAdapter {
   readonly type: TransportType;
+  readonly capabilities: TransportCapabilities;
   prepare(params: TransportPrepareParams): Promise<TransportPrepareResult>;
-  applyResult?(params: TransportApplyResultParams): Promise<void>;
+  applySnapshot?(params: TransportApplySnapshotParams): Promise<void>;
   cleanup(delegationId: string): Promise<void>;
+  shutdown?(): Promise<void>;
 }
 
 /** Transport adapter for Executor side */
 export interface ExecutorTransportAdapter {
   readonly type: TransportType;
+  readonly capabilities: TransportCapabilities;
   checkDependency(): Promise<DependencyCheckResult>;
   setup(params: TransportSetupParams): Promise<string>;
   teardown(params: TransportTeardownParams): Promise<TransportTeardownResult>;

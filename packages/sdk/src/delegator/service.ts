@@ -4,7 +4,6 @@
  * Manages the AWCP delegation protocol on the Delegator side.
  */
 
-import { randomUUID } from 'node:crypto';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import {
@@ -17,12 +16,15 @@ import {
   type AwcpMessage,
   type DelegatorTransportAdapter,
   type TaskEvent,
+  type TaskSnapshotEvent,
   type DelegatorServiceStatus,
   type DelegatorRequestHandler,
   type DelegateParams,
+  type EnvironmentSnapshot,
   DelegationStateMachine,
   createDelegation,
   applyMessageToDelegation,
+  generateDelegationId,
   PROTOCOL_VERSION,
   AwcpError,
   WorkspaceTooLargeError,
@@ -33,6 +35,7 @@ import { type DelegatorConfig, type ResolvedDelegatorConfig, resolveDelegatorCon
 import { AdmissionController } from './admission.js';
 import { EnvironmentBuilder } from './environment-builder.js';
 import { ExecutorClient } from './executor-client.js';
+import { SnapshotStore } from './snapshot-store.js';
 
 export interface DelegatorServiceOptions {
   config: DelegatorConfig;
@@ -43,14 +46,21 @@ export class DelegatorService implements DelegatorRequestHandler {
   private transport: DelegatorTransportAdapter;
   private admissionController: AdmissionController;
   private environmentBuilder: EnvironmentBuilder;
+  private snapshotStore: SnapshotStore;
   private executorClient: ExecutorClient;
   private delegations = new Map<string, Delegation>();
   private stateMachines = new Map<string, DelegationStateMachine>();
   private executorUrls = new Map<string, string>();
+  private cleanupTimer?: ReturnType<typeof setInterval>;
 
   constructor(options: DelegatorServiceOptions) {
     this.config = resolveDelegatorConfig(options.config);
     this.transport = this.config.transport;
+
+    // liveSync transports don't support staged snapshots
+    if (this.transport.capabilities.liveSync && this.config.snapshot.mode === 'staged') {
+      this.config.snapshot.mode = 'auto';
+    }
 
     this.admissionController = new AdmissionController({
       maxTotalBytes: this.config.admission.maxTotalBytes,
@@ -59,16 +69,20 @@ export class DelegatorService implements DelegatorRequestHandler {
     });
 
     this.environmentBuilder = new EnvironmentBuilder({
-      baseDir: this.config.environment.baseDir,
+      baseDir: path.join(this.config.baseDir, 'delegations'),
+    });
+
+    this.snapshotStore = new SnapshotStore({
+      baseDir: this.config.baseDir,
     });
 
     this.executorClient = new ExecutorClient();
+    this.startCleanupTimer();
   }
 
   async delegate(params: DelegateParams): Promise<string> {
-    const delegationId = randomUUID();
+    const delegationId = generateDelegationId();
 
-    // Validate and check admission for all resources
     for (const resource of params.environment.resources) {
       const sourcePath = await this.validateAndNormalizePath(resource.source, delegationId);
       resource.source = sourcePath;
@@ -93,6 +107,12 @@ export class DelegatorService implements DelegatorRequestHandler {
       task: params.task,
       leaseConfig: { ttlSeconds, accessMode },
     });
+
+    delegation.snapshotPolicy = {
+      mode: this.config.snapshot.mode,
+      retentionMs: this.config.snapshot.retentionMs,
+      maxSnapshots: this.config.snapshot.maxSnapshots,
+    };
 
     const { envRoot } = await this.environmentBuilder.build(delegationId, params.environment);
     delegation.exportPath = envRoot;
@@ -193,7 +213,6 @@ export class DelegatorService implements DelegatorRequestHandler {
     await this.executorClient.sendStart(executorUrl, startMessage);
     this.config.hooks.onDelegationStarted?.(updated);
 
-    // Subscribe to SSE events for task completion
     this.subscribeToTaskEvents(delegation.id, executorUrl);
   }
 
@@ -209,7 +228,6 @@ export class DelegatorService implements DelegatorRequestHandler {
       }
     } catch (error) {
       console.error(`[AWCP:Delegator] SSE subscription error for ${delegationId}:`, error);
-      // Mark delegation as error if SSE fails and task hasn't completed
       const delegation = this.delegations.get(delegationId);
       if (delegation && !['completed', 'error', 'cancelled'].includes(delegation.state)) {
         delegation.state = 'error';
@@ -232,9 +250,14 @@ export class DelegatorService implements DelegatorRequestHandler {
       this.transitionState(delegationId, { type: 'SETUP_COMPLETE' });
     }
 
+    if (event.type === 'snapshot') {
+      await this.handleSnapshotEvent(delegationId, event);
+    }
+
     if (event.type === 'done') {
-      if (event.resultBase64) {
-        await this.applyResult(delegationId, event.resultBase64);
+      const executorUrl = this.executorUrls.get(delegationId);
+      if (executorUrl) {
+        await this.executorClient.acknowledgeResult(executorUrl, delegationId).catch(() => {});
       }
 
       const doneMessage: DoneMessage = {
@@ -260,30 +283,77 @@ export class DelegatorService implements DelegatorRequestHandler {
     }
   }
 
-  /**
-   * Apply result from Executor back to original workspace
-   */
-  private async applyResult(delegationId: string, resultData: string): Promise<void> {
+  private async handleSnapshotEvent(delegationId: string, event: TaskSnapshotEvent): Promise<void> {
+    // liveSync transports don't produce snapshots
+    if (this.transport.capabilities.liveSync) return;
+
     const delegation = this.delegations.get(delegationId);
     if (!delegation) return;
 
-    const env = this.environmentBuilder.get(delegationId);
-    if (!env) return;
+    const policy = delegation.snapshotPolicy ?? {
+      mode: this.config.snapshot.mode,
+      retentionMs: this.config.snapshot.retentionMs,
+      maxSnapshots: this.config.snapshot.maxSnapshots,
+    };
+
+    if (!delegation.snapshots) {
+      delegation.snapshots = [];
+    }
+
+    const snapshot: EnvironmentSnapshot = {
+      id: event.snapshotId,
+      delegationId,
+      summary: event.summary,
+      highlights: event.highlights,
+      status: 'pending',
+      metadata: event.metadata,
+      recommended: event.recommended,
+      createdAt: new Date().toISOString(),
+    };
+
+    if (policy.mode === 'auto') {
+      await this.applySnapshotToWorkspace(delegationId, event.snapshotBase64);
+      snapshot.status = 'applied';
+      snapshot.appliedAt = new Date().toISOString();
+      delegation.appliedSnapshotId = event.snapshotId;
+    } else if (policy.mode === 'staged') {
+      const localPath = await this.snapshotStore.save(
+        delegationId,
+        event.snapshotId,
+        event.snapshotBase64,
+        { summary: event.summary, highlights: event.highlights, ...event.metadata }
+      );
+      snapshot.localPath = localPath;
+    } else {
+      snapshot.status = 'discarded';
+    }
+
+    delegation.snapshots.push(snapshot);
+    delegation.updatedAt = new Date().toISOString();
+
+    this.config.hooks.onSnapshotReceived?.(delegation, snapshot);
+  }
+
+  private async applySnapshotToWorkspace(delegationId: string, snapshotData: string): Promise<void> {
+    const delegation = this.delegations.get(delegationId);
+    if (!delegation) return;
+
+    if (!this.environmentBuilder.get(delegationId)) return;
 
     const rwResources = delegation.environment.resources.filter(r => r.mode === 'rw');
     if (rwResources.length === 0) return;
 
     try {
-      if (this.transport.applyResult) {
-        await this.transport.applyResult({
+      if (this.transport.applySnapshot) {
+        await this.transport.applySnapshot({
           delegationId,
-          resultData,
+          snapshotData,
           resources: rwResources.map(r => ({ name: r.name, source: r.source, mode: r.mode })),
         });
-        console.log(`[AWCP:Delegator] Applied result for ${delegationId}`);
+        console.log(`[AWCP:Delegator] Applied snapshot for ${delegationId}`);
       }
     } catch (error) {
-      console.error(`[AWCP:Delegator] Failed to apply result for ${delegationId}:`, error);
+      console.error(`[AWCP:Delegator] Failed to apply snapshot for ${delegationId}:`, error);
     }
   }
 
@@ -309,7 +379,16 @@ export class DelegatorService implements DelegatorRequestHandler {
     const updated = applyMessageToDelegation(delegation, message);
     this.delegations.set(delegation.id, updated);
 
-    await this.cleanup(delegation.id);
+    // liveSync transports: cleanup immediately (changes already synced)
+    // snapshot transports: cleanup based on policy
+    const shouldCleanupNow = this.transport.capabilities.liveSync
+      || this.config.snapshot.mode === 'auto'
+      || this.shouldCleanup(delegation);
+
+    if (shouldCleanupNow) {
+      await this.cleanup(delegation.id);
+    }
+
     this.config.hooks.onDelegationCompleted?.(updated);
   }
 
@@ -373,61 +452,53 @@ export class DelegatorService implements DelegatorRequestHandler {
     return this.delegations.get(delegationId);
   }
 
-  /**
-   * Fetch result from Executor and apply to original workspace.
-   * Use this when SSE connection was lost and delegation result needs recovery.
-   */
-  async fetchAndApplyResult(delegationId: string): Promise<Delegation> {
+  listSnapshots(delegationId: string): EnvironmentSnapshot[] {
     const delegation = this.delegations.get(delegationId);
-    if (!delegation) {
-      throw new Error(`Unknown delegation: ${delegationId}`);
-    }
+    if (!delegation) throw new Error(`Unknown delegation: ${delegationId}`);
+    return delegation.snapshots ?? [];
+  }
 
-    const executorUrl = this.executorUrls.get(delegationId);
-    if (!executorUrl) {
-      throw new Error(`No executor URL for delegation: ${delegationId}`);
-    }
+  async applySnapshot(delegationId: string, snapshotId: string): Promise<void> {
+    const delegation = this.delegations.get(delegationId);
+    if (!delegation) throw new Error(`Unknown delegation: ${delegationId}`);
 
-    const result = await this.executorClient.fetchResult(executorUrl, delegationId);
+    const snapshot = delegation.snapshots?.find(s => s.id === snapshotId);
+    if (!snapshot) throw new Error(`Snapshot not found: ${snapshotId}`);
+    if (snapshot.status === 'applied') throw new Error(`Snapshot already applied: ${snapshotId}`);
 
-    if (result.status === 'running') {
-      throw new Error('Task still running');
-    }
+    const snapshotBuffer = await this.snapshotStore.load(delegationId, snapshotId);
+    const snapshotBase64 = snapshotBuffer.toString('base64');
 
-    if (result.status === 'not_found') {
-      throw new Error('Task result not found or expired');
-    }
+    await this.applySnapshotToWorkspace(delegationId, snapshotBase64);
 
-    if (result.status === 'not_applicable') {
-      delegation.state = 'completed';
-      delegation.updatedAt = new Date().toISOString();
-      await this.cleanup(delegationId);
-      return delegation;
-    }
-
-    if (result.status === 'error') {
-      delegation.state = 'error';
-      delegation.error = result.error;
-      delegation.updatedAt = new Date().toISOString();
-      await this.cleanup(delegationId);
-      return delegation;
-    }
-
-    if (result.resultBase64) {
-      await this.applyResult(delegationId, result.resultBase64);
-    }
-
-    delegation.state = 'completed';
-    delegation.result = {
-      summary: result.summary ?? '',
-      highlights: result.highlights,
-    };
+    snapshot.status = 'applied';
+    snapshot.appliedAt = new Date().toISOString();
+    delegation.appliedSnapshotId = snapshotId;
     delegation.updatedAt = new Date().toISOString();
 
-    await this.cleanup(delegationId);
-    this.config.hooks.onDelegationCompleted?.(delegation);
+    this.config.hooks.onSnapshotApplied?.(delegation, snapshot);
 
-    return delegation;
+    if (this.shouldCleanup(delegation)) {
+      await this.cleanup(delegationId);
+    }
+  }
+
+  async discardSnapshot(delegationId: string, snapshotId: string): Promise<void> {
+    const delegation = this.delegations.get(delegationId);
+    if (!delegation) throw new Error(`Unknown delegation: ${delegationId}`);
+
+    const snapshot = delegation.snapshots?.find(s => s.id === snapshotId);
+    if (!snapshot) throw new Error(`Snapshot not found: ${snapshotId}`);
+
+    await this.snapshotStore.delete(delegationId, snapshotId);
+
+    snapshot.status = 'discarded';
+    snapshot.localPath = undefined;
+    delegation.updatedAt = new Date().toISOString();
+
+    if (this.shouldCleanup(delegation)) {
+      await this.cleanup(delegationId);
+    }
   }
 
   async waitForCompletion(delegationId: string, timeoutMs: number = 60000): Promise<Delegation> {
@@ -471,15 +542,43 @@ export class DelegatorService implements DelegatorRequestHandler {
     };
   }
 
+  stop(): void {
+    if (this.cleanupTimer) {
+      clearInterval(this.cleanupTimer);
+      this.cleanupTimer = undefined;
+    }
+  }
+
+  private shouldCleanup(delegation: Delegation): boolean {
+    if (!delegation.snapshots || delegation.snapshots.length === 0) {
+      return true;
+    }
+    return delegation.snapshots.every(s => s.status !== 'pending');
+  }
+
   private async cleanup(delegationId: string): Promise<void> {
     await this.transport.cleanup(delegationId);
     await this.environmentBuilder.release(delegationId);
+    await this.snapshotStore.cleanupDelegation(delegationId);
     this.executorUrls.delete(delegationId);
   }
 
-  /**
-   * Transition delegation state and keep delegation.state in sync
-   */
+  private startCleanupTimer(): void {
+    this.cleanupTimer = setInterval(async () => {
+      const now = Date.now();
+      for (const [id, delegation] of this.delegations) {
+        if (!['completed', 'error', 'cancelled'].includes(delegation.state)) continue;
+
+        const policy = delegation.snapshotPolicy ?? { retentionMs: this.config.snapshot.retentionMs };
+        const updatedAt = new Date(delegation.updatedAt).getTime();
+
+        if (now - updatedAt > (policy.retentionMs ?? this.config.snapshot.retentionMs)) {
+          await this.cleanup(id);
+        }
+      }
+    }, 60 * 1000);
+  }
+
   private transitionState(
     delegationId: string,
     event: Parameters<DelegationStateMachine['transition']>[0]
@@ -494,19 +593,11 @@ export class DelegatorService implements DelegatorRequestHandler {
     return result;
   }
 
-  /**
-   * Validate and normalize the workspace path.
-   * - Converts relative paths to absolute paths
-   * - Verifies the directory exists
-   * - Returns the normalized absolute path
-   */
   private async validateAndNormalizePath(localDir: string, delegationId: string): Promise<string> {
-    // Normalize to absolute path
     const absolutePath = path.isAbsolute(localDir)
       ? localDir
       : path.resolve(process.cwd(), localDir);
 
-    // Verify directory exists
     try {
       const stats = await fs.stat(absolutePath);
       if (!stats.isDirectory()) {

@@ -153,6 +153,26 @@ export class ExecutorClient {
     }
   }
 
+  /**
+   * Acknowledge result receipt to Executor
+   */
+  async acknowledgeResult(executorUrl: string, delegationId: string): Promise<void> {
+    const baseUrl = executorUrl.replace(/\/$/, '').replace(/\/awcp$/, '');
+    const url = `${baseUrl}/awcp/tasks/${delegationId}/ack`;
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), this.timeout);
+
+    try {
+      await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        signal: controller.signal,
+      });
+    } finally {
+      clearTimeout(timeoutId);
+    }
+  }
+
   private async send(executorUrl: string, message: AwcpMessage): Promise<Response> {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), this.timeout);

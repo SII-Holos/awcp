@@ -1,0 +1,6 @@
+# Generated during test run
+git-server/
+logs/
+temp/
+workdir/
+workspace/AGENTS.md

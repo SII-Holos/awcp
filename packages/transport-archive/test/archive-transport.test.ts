@@ -87,10 +87,10 @@ describe('ArchiveTransport', () => {
       workDir,
     });
 
-    expect(teardownResult.resultBase64).toBeDefined();
-    expect(teardownResult.resultBase64!.length).toBeGreaterThan(0);
+    expect(teardownResult.snapshotBase64).toBeDefined();
+    expect(teardownResult.snapshotBase64!.length).toBeGreaterThan(0);
 
-    const resultBuffer = Buffer.from(teardownResult.resultBase64!, 'base64');
+    const resultBuffer = Buffer.from(teardownResult.snapshotBase64!, 'base64');
     const resultPath = path.join(tempDir, 'result.zip');
     await fs.promises.writeFile(resultPath, resultBuffer);
 

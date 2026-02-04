@@ -55,7 +55,7 @@ export interface TaskResultResponse {
   completedAt?: string;
   summary?: string;
   highlights?: string[];
-  resultBase64?: string;
+  snapshotBase64?: string;
   error?: {
     code: string;
     message: string;
@@ -68,6 +68,7 @@ export interface ExecutorRequestHandler {
   handleMessage(message: AwcpMessage): Promise<AwcpMessage | null>;
   subscribeTask(delegationId: string, callback: (event: TaskEvent) => void): () => void;
   getTaskResult(delegationId: string): TaskResultResponse;
+  acknowledgeResult(delegationId: string): void;
   cancelDelegation(delegationId: string): Promise<void>;
   getStatus(): ExecutorServiceStatus;
 }

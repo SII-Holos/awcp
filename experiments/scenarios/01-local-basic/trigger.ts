@@ -68,8 +68,9 @@ async function main() {
     console.log('╚════════════════════════════════════════════════════════════╝');
     console.log('');
     console.log(`State:   ${delegation.state}`);
-    if (delegation.result) {
-      console.log(`Summary: ${delegation.result.summary}`);
+    const appliedSnapshot = delegation.snapshots?.find(s => s.status === 'applied');
+    if (appliedSnapshot) {
+      console.log(`Summary: ${appliedSnapshot.summary}`);
     }
     console.log('');
     console.log('Check workspace/hello.txt to see the changes!');

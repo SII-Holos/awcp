@@ -15,6 +15,7 @@ import {
   type ExecutorTransportAdapter,
   type TaskEvent,
   type TaskStatusEvent,
+  type TaskSnapshotEvent,
   type TaskDoneEvent,
   type TaskErrorEvent,
   type ActiveLease,
@@ -22,6 +23,7 @@ import {
   type ExecutorServiceStatus,
   type TaskExecutor,
   type TaskResultResponse,
+  generateSnapshotId,
   PROTOCOL_VERSION,
   ErrorCodes,
   AwcpError,
@@ -49,10 +51,11 @@ interface CompletedDelegation {
   id: string;
   completedAt: Date;
   state: 'completed' | 'error';
-  result?: {
+  snapshot?: {
+    id: string;
     summary: string;
     highlights?: string[];
-    resultBase64?: string;
+    snapshotBase64?: string;
   };
   error?: {
     code: string;
@@ -288,13 +291,30 @@ export class ExecutorService implements ExecutorRequestHandler {
 
       const teardownResult = await this.transport.teardown({ delegationId, workDir: actualPath });
 
+      const snapshotId = generateSnapshotId();
+
+      if (teardownResult.snapshotBase64) {
+        const snapshotEvent: TaskSnapshotEvent = {
+          delegationId,
+          type: 'snapshot',
+          timestamp: new Date().toISOString(),
+          snapshotId,
+          summary: result.summary,
+          highlights: result.highlights,
+          snapshotBase64: teardownResult.snapshotBase64,
+          recommended: true,
+        };
+        eventEmitter.emit('event', snapshotEvent);
+      }
+
       const doneEvent: TaskDoneEvent = {
         delegationId,
         type: 'done',
         timestamp: new Date().toISOString(),
         summary: result.summary,
         highlights: result.highlights,
-        resultBase64: teardownResult.resultBase64,
+        snapshotIds: teardownResult.snapshotBase64 ? [snapshotId] : undefined,
+        recommendedSnapshotId: teardownResult.snapshotBase64 ? snapshotId : undefined,
       };
 
       eventEmitter.emit('event', doneEvent);
@@ -304,11 +324,12 @@ export class ExecutorService implements ExecutorRequestHandler {
         id: delegationId,
         completedAt: new Date(),
         state: 'completed',
-        result: {
+        snapshot: teardownResult.snapshotBase64 ? {
+          id: snapshotId,
           summary: result.summary,
           highlights: result.highlights,
-          resultBase64: teardownResult.resultBase64,
-        },
+          snapshotBase64: teardownResult.snapshotBase64,
+        } : undefined,
       });
       this.scheduleResultCleanup(delegationId);
 
@@ -426,9 +447,9 @@ export class ExecutorService implements ExecutorRequestHandler {
         return {
           status: 'completed',
           completedAt: completed.completedAt.toISOString(),
-          summary: completed.result?.summary,
-          highlights: completed.result?.highlights,
-          resultBase64: completed.result?.resultBase64,
+          summary: completed.snapshot?.summary,
+          highlights: completed.snapshot?.highlights,
+          snapshotBase64: completed.snapshot?.snapshotBase64,
         };
       }
       return {
@@ -446,6 +467,10 @@ export class ExecutorService implements ExecutorRequestHandler {
     }
 
     return { status: 'not_found' };
+  }
+
+  acknowledgeResult(delegationId: string): void {
+    this.completedDelegations.delete(delegationId);
   }
 
   private scheduleResultCleanup(delegationId: string): void {

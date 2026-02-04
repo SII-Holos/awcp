@@ -16,6 +16,7 @@
     "@awcp/transport-archive": "*",
     "@awcp/transport-sshfs": "*",
     "@awcp/transport-storage": "*",
+    "@awcp/transport-git": "*",
     "express": "^4.18.2",
     "uuid": "^11.1.0"
   },

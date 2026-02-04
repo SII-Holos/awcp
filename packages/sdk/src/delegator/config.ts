@@ -2,18 +2,22 @@
  * AWCP Delegator Configuration
  */
 
-import type { Delegation, AccessMode, DelegatorTransportAdapter } from '@awcp/core';
+import type { Delegation, AccessMode, DelegatorTransportAdapter, SnapshotPolicy, EnvironmentSnapshot } from '@awcp/core';
 import type { AdmissionConfig } from './admission.js';
 
 // Re-export for convenience
 export type { AdmissionConfig } from './admission.js';
 
 /**
- * Environment builder configuration
+ * Snapshot policy configuration
  */
-export interface EnvironmentConfig {
-  /** Base directory for environment directories */
-  baseDir: string;
+export interface SnapshotConfig {
+  /** Snapshot mode: auto=immediate apply, staged=store for selection, discard=no storage */
+  mode?: SnapshotPolicy;
+  /** Retention time in ms for staged snapshots (default: 30 minutes) */
+  retentionMs?: number;
+  /** Maximum snapshots per delegation (default: 10) */
+  maxSnapshots?: number;
 }
 
 /**
@@ -33,6 +37,8 @@ export interface DelegatorHooks {
   onDelegationCreated?: (delegation: Delegation) => void;
   onDelegationStarted?: (delegation: Delegation) => void;
   onDelegationCompleted?: (delegation: Delegation) => void;
+  onSnapshotReceived?: (delegation: Delegation, snapshot: EnvironmentSnapshot) => void;
+  onSnapshotApplied?: (delegation: Delegation, snapshot: EnvironmentSnapshot) => void;
   onError?: (delegationId: string, error: Error) => void;
 }
 
@@ -40,12 +46,14 @@ export interface DelegatorHooks {
  * AWCP Delegator Configuration
  */
 export interface DelegatorConfig {
-  /** Environment builder configuration */
-  environment: EnvironmentConfig;
+  /** Base directory for all delegation data (environments, snapshots) */
+  baseDir: string;
   /** Transport adapter for data plane */
   transport: DelegatorTransportAdapter;
   /** Admission control */
   admission?: AdmissionConfig;
+  /** Snapshot policy */
+  snapshot?: SnapshotConfig;
   /** Default values for delegations */
   defaults?: DelegationDefaults;
   /** Lifecycle hooks */
@@ -62,19 +70,20 @@ export const DEFAULT_ADMISSION = {
 } as const;
 
 /**
+ * Default snapshot settings
+ */
+export const DEFAULT_SNAPSHOT = {
+  mode: 'auto' as SnapshotPolicy,
+  retentionMs: 30 * 60 * 1000,           // 30 minutes
+  maxSnapshots: 10,
+} as const;
+
+/**
  * Default delegation settings
  */
 export const DEFAULT_DELEGATION = {
   ttlSeconds: 3600,
   accessMode: 'rw' as AccessMode,
-} as const;
-
-/**
- * Combined default configuration
- */
-export const DEFAULT_DELEGATOR_CONFIG = {
-  admission: DEFAULT_ADMISSION,
-  defaults: DEFAULT_DELEGATION,
 } as const;
 
 /**
@@ -84,6 +93,15 @@ export interface ResolvedAdmissionConfig {
   maxTotalBytes: number;
   maxFileCount: number;
   maxSingleFileBytes: number;
+}
+
+/**
+ * Resolved snapshot config with all fields
+ */
+export interface ResolvedSnapshotConfig {
+  mode: SnapshotPolicy;
+  retentionMs: number;
+  maxSnapshots: number;
 }
 
 /**
@@ -98,23 +116,27 @@ export interface ResolvedDelegationDefaults {
  * Resolved configuration with all defaults applied
  */
 export interface ResolvedDelegatorConfig {
-  environment: EnvironmentConfig;
+  baseDir: string;
   transport: DelegatorTransportAdapter;
   admission: ResolvedAdmissionConfig;
+  snapshot: ResolvedSnapshotConfig;
   defaults: ResolvedDelegationDefaults;
   hooks: DelegatorHooks;
 }
 
 export function resolveDelegatorConfig(config: DelegatorConfig): ResolvedDelegatorConfig {
   return {
-    environment: {
-      baseDir: config.environment.baseDir,
-    },
+    baseDir: config.baseDir,
     transport: config.transport,
     admission: {
       maxTotalBytes: config.admission?.maxTotalBytes ?? DEFAULT_ADMISSION.maxTotalBytes,
       maxFileCount: config.admission?.maxFileCount ?? DEFAULT_ADMISSION.maxFileCount,
       maxSingleFileBytes: config.admission?.maxSingleFileBytes ?? DEFAULT_ADMISSION.maxSingleFileBytes,
+    },
+    snapshot: {
+      mode: config.snapshot?.mode ?? DEFAULT_SNAPSHOT.mode,
+      retentionMs: config.snapshot?.retentionMs ?? DEFAULT_SNAPSHOT.retentionMs,
+      maxSnapshots: config.snapshot?.maxSnapshots ?? DEFAULT_SNAPSHOT.maxSnapshots,
     },
     defaults: {
       ttlSeconds: config.defaults?.ttlSeconds ?? DEFAULT_DELEGATION.ttlSeconds,

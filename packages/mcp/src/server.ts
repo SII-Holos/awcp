@@ -275,10 +275,13 @@ function formatDelegationResult(delegation: Delegation): string {
     `Status: ${delegation.state}`,
   ];
 
-  if (delegation.state === 'completed' && delegation.result) {
-    lines.push('', '--- Result ---', delegation.result.summary);
-    if (delegation.result.highlights?.length) {
-      lines.push('', 'Highlights:', ...delegation.result.highlights.map((h: string) => `  - ${h}`));
+  if (delegation.state === 'completed' && delegation.snapshots?.length) {
+    const appliedSnapshot = delegation.snapshots.find(s => s.status === 'applied');
+    if (appliedSnapshot) {
+      lines.push('', '--- Result ---', appliedSnapshot.summary);
+      if (appliedSnapshot.highlights?.length) {
+        lines.push('', 'Highlights:', ...appliedSnapshot.highlights.map((h: string) => `  - ${h}`));
+      }
     }
   }
 
@@ -302,8 +305,11 @@ function formatDelegationStatus(delegation: Delegation): string {
 
   if (isRunning(delegation)) {
     lines.push('', 'Task is still running...');
-  } else if (delegation.state === 'completed' && delegation.result) {
-    lines.push('', '--- Result ---', delegation.result.summary);
+  } else if (delegation.state === 'completed' && delegation.snapshots?.length) {
+    const appliedSnapshot = delegation.snapshots.find(s => s.status === 'applied');
+    if (appliedSnapshot) {
+      lines.push('', '--- Result ---', appliedSnapshot.summary);
+    }
   } else if (delegation.state === 'error' && delegation.error) {
     lines.push('', '--- Error ---', delegation.error.message);
     if (delegation.error.hint) {

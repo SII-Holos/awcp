@@ -142,8 +142,8 @@ describe('StorageTransport', () => {
       workDir,
     });
 
-    expect(teardownResult.resultBase64).toBeDefined();
-    expect(teardownResult.resultBase64!.length).toBeGreaterThan(0);
+    expect(teardownResult.snapshotBase64).toBeDefined();
+    expect(teardownResult.snapshotBase64!.length).toBeGreaterThan(0);
   });
 });
 

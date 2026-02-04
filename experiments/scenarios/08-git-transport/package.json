@@ -1,0 +1,23 @@
+{
+  "name": "@awcp-experiments/08-git-transport",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "description": "Git transport experiment - tests Git-based file transfer with clone/push",
+  "scripts": {
+    "build": "echo 'No build needed - using tsx'",
+    "trigger": "npx tsx trigger.ts",
+    "clean": "./cleanup.sh"
+  },
+  "dependencies": {
+    "@awcp/core": "*",
+    "@awcp/sdk": "*",
+    "@awcp/mcp": "*",
+    "@awcp/transport-git": "*",
+    "@modelcontextprotocol/sdk": "^1.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "tsx": "^4.7.0"
+  }
+}
