@@ -23,6 +23,7 @@ import {
   type ExecutorServiceStatus,
   type TaskExecutor,
   type TaskResultResponse,
+  generateSnapshotId,
   PROTOCOL_VERSION,
   ErrorCodes,
   AwcpError,
@@ -290,7 +291,7 @@ export class ExecutorService implements ExecutorRequestHandler {
 
       const teardownResult = await this.transport.teardown({ delegationId, workDir: actualPath });
 
-      const snapshotId = `${delegationId}-snap-1`;
+      const snapshotId = generateSnapshotId();
 
       if (teardownResult.snapshotBase64) {
         const snapshotEvent: TaskSnapshotEvent = {

@@ -4,7 +4,6 @@
  * Manages the AWCP delegation protocol on the Delegator side.
  */
 
-import { randomUUID } from 'node:crypto';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import {
@@ -25,6 +24,7 @@ import {
   DelegationStateMachine,
   createDelegation,
   applyMessageToDelegation,
+  generateDelegationId,
   PROTOCOL_VERSION,
   AwcpError,
   WorkspaceTooLargeError,
@@ -81,7 +81,7 @@ export class DelegatorService implements DelegatorRequestHandler {
   }
 
   async delegate(params: DelegateParams): Promise<string> {
-    const delegationId = randomUUID();
+    const delegationId = generateDelegationId();
 
     for (const resource of params.environment.resources) {
       const sourcePath = await this.validateAndNormalizePath(resource.source, delegationId);
