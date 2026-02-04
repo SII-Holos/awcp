@@ -43,7 +43,7 @@ export interface AuthCredential {
   metadata?: Record<string, string>;
 }
 
-export type TransportType = 'sshfs' | 'archive' | 'storage';
+export type TransportType = 'sshfs' | 'archive' | 'storage' | 'git';
 
 export type DelegationState =
   | 'created'
@@ -127,7 +127,20 @@ export interface StorageWorkDirInfo {
   headers?: Record<string, string>;
 }
 
-export type WorkDirInfo = SshfsWorkDirInfo | ArchiveWorkDirInfo | StorageWorkDirInfo;
+export type GitCredential =
+  | { type: 'token'; token: string }
+  | { type: 'ssh'; privateKey?: string }
+  | { type: 'none' };
+
+export interface GitWorkDirInfo {
+  transport: 'git';
+  repoUrl: string;
+  baseBranch: string;
+  baseCommit: string;
+  auth?: GitCredential;
+}
+
+export type WorkDirInfo = SshfsWorkDirInfo | ArchiveWorkDirInfo | StorageWorkDirInfo | GitWorkDirInfo;
 
 export interface BaseMessage {
   version: typeof PROTOCOL_VERSION;

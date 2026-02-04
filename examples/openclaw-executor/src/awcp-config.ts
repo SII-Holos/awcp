@@ -9,6 +9,7 @@ import type { InviteMessage, TransportAdapter, ListenerAdapter } from '@awcp/cor
 import { ArchiveTransport } from '@awcp/transport-archive';
 import { SshfsTransport } from '@awcp/transport-sshfs';
 import { StorageTransport } from '@awcp/transport-storage';
+import { GitTransport } from '@awcp/transport-git';
 import type { AppConfig } from './app-config.js';
 import type { OpenClawExecutor } from './openclaw-executor.js';
 import type { OpenClawGatewayManager } from './gateway-manager.js';
@@ -22,6 +23,17 @@ function createTransport(tempDir: string): TransportAdapter {
   if (type === 'storage') {
     console.log('[AWCP] Using Storage transport');
     return new StorageTransport({ executor: { tempDir } });
+  }
+  if (type === 'git') {
+    console.log('[AWCP] Using Git transport');
+    const remoteUrl = process.env.AWCP_GIT_REMOTE_URL;
+    if (!remoteUrl) {
+      throw new Error('AWCP_GIT_REMOTE_URL is required for git transport');
+    }
+    return new GitTransport({
+      delegator: { remoteUrl, auth: { type: 'none' }, tempDir },
+      executor: { tempDir },
+    });
   }
   console.log('[AWCP] Using Archive transport');
   return new ArchiveTransport({ executor: { tempDir } });

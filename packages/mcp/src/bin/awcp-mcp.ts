@@ -27,7 +27,7 @@ interface ParsedArgs {
   environmentDir?: string;
 
   // Transport
-  transport: 'archive' | 'sshfs' | 'storage';
+  transport: 'archive' | 'sshfs' | 'storage' | 'git';
 
   // Admission
   maxTotalBytes?: number;
@@ -51,6 +51,9 @@ interface ParsedArgs {
   // Storage transport
   storageEndpoint?: string;
   storageLocalDir?: string;
+
+  // Git transport
+  gitRemoteUrl?: string;
 
   // Peers
   peerUrls: string[];
@@ -95,7 +98,7 @@ function parseArgs(args: string[]): ParsedArgs | null {
 
       // Transport
       case '--transport':
-        result.transport = nextArg as 'archive' | 'sshfs' | 'storage';
+        result.transport = nextArg as 'archive' | 'sshfs' | 'storage' | 'git';
         i++;
         break;
 
@@ -158,6 +161,12 @@ function parseArgs(args: string[]): ParsedArgs | null {
         break;
       case '--storage-local-dir':
         result.storageLocalDir = nextArg;
+        i++;
+        break;
+
+      // Git transport
+      case '--git-remote-url':
+        result.gitRemoteUrl = nextArg;
         i++;
         break;
 
@@ -235,6 +244,7 @@ async function main() {
       sshKeyDir: parsed.sshKeyDir,
       storageEndpoint: parsed.storageEndpoint,
       storageLocalDir: parsed.storageLocalDir,
+      gitRemoteUrl: parsed.gitRemoteUrl,
     };
 
     const result = await ensureDaemonRunning(options);
@@ -290,7 +300,7 @@ Environment Options:
   --environment-dir DIR      Directory for environments (default: ~/.awcp/environments)
 
 Transport Options:
-  --transport TYPE           Transport: archive, sshfs, storage (default: archive)
+  --transport TYPE           Transport: archive, sshfs, storage, git (default: archive)
 
 Admission Control:
   --max-total-bytes N        Max workspace size in bytes (default: 100MB)
@@ -315,6 +325,9 @@ Storage Transport Options:
   --storage-endpoint URL     Storage endpoint URL (required for storage)
   --storage-local-dir DIR    Local directory for storage files
 
+Git Transport Options:
+  --git-remote-url URL       Git remote URL (required for git transport)
+
 Peer Discovery:
   --peers URL,...            Comma-separated list of executor base URLs
 
@@ -336,6 +349,9 @@ Examples:
 
   # Use SSHFS transport
   awcp-mcp --peers http://localhost:4001 --transport sshfs --ssh-ca-key ~/.awcp/ca
+
+  # Use Git transport (local bare repo)
+  awcp-mcp --peers http://localhost:4001 --transport git --git-remote-url /path/to/repo.git
 
 Claude Desktop config (claude_desktop_config.json):
   {

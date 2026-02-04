@@ -29,7 +29,7 @@ export interface AutoDaemonOptions {
 
   // === Transport ===
   /** Transport type (default: archive) */
-  transport?: 'archive' | 'sshfs' | 'storage';
+  transport?: 'archive' | 'sshfs' | 'storage' | 'git';
 
   // === Admission Control ===
   /** Maximum total bytes for workspace (default: 100MB) */
@@ -66,6 +66,10 @@ export interface AutoDaemonOptions {
   storageEndpoint?: string;
   /** Local directory for storage files (for local provider) */
   storageLocalDir?: string;
+
+  // === Git Transport Options ===
+  /** Git remote URL (required for git transport) */
+  gitRemoteUrl?: string;
 }
 
 /**
@@ -141,6 +145,20 @@ async function createDefaultConfig(options: AutoDaemonOptions): Promise<Delegato
           localDir: options.storageLocalDir || join(awcpDir, 'storage'),
           endpoint: options.storageEndpoint,
         },
+        tempDir,
+      },
+    });
+  } else if (options.transport === 'git') {
+    const { GitTransport } = await import('@awcp/transport-git');
+    
+    if (!options.gitRemoteUrl) {
+      throw new Error('Git transport requires --git-remote-url option');
+    }
+    
+    transport = new GitTransport({
+      delegator: {
+        remoteUrl: options.gitRemoteUrl,
+        auth: { type: 'none' },
         tempDir,
       },
     });

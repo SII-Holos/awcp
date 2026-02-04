@@ -1,0 +1,40 @@
+{
+  "name": "@awcp/transport-git",
+  "version": "0.0.11",
+  "description": "AWCP Git Transport - Git-based workspace transfer with version history",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "clean": "rm -rf dist *.tsbuildinfo",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@awcp/core": "^0.0.11",
+    "@awcp/transport-archive": "^0.0.11"
+  },
+  "keywords": [
+    "awcp",
+    "git",
+    "transport",
+    "version-control"
+  ],
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/anthropics/awcp.git",
+    "directory": "packages/transport-git"
+  }
+}

@@ -37,8 +37,6 @@ export class StorageTransport implements TransportAdapter {
   private provider?: StorageProvider;
   private tempDir: string;
   private config: StorageTransportConfig;
-
-  /** Store workDirInfo during setup for use in teardown */
   private activeSetups = new Map<string, StorageWorkDirInfo>();
 
   constructor(config: StorageTransportConfig = {}) {
@@ -120,8 +118,11 @@ export class StorageTransport implements TransportAdapter {
   }
 
   async cleanup(delegationId: string): Promise<void> {
-    const archivePath = path.join(this.tempDir, `${delegationId}.zip`);
-    await fs.promises.unlink(archivePath).catch(() => {});
+    this.activeSetups.delete(delegationId);
+  }
+
+  async shutdown(): Promise<void> {
+    this.activeSetups.clear();
   }
 
   // ========== Executor Side ==========
