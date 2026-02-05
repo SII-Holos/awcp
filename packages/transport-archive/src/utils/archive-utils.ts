@@ -89,6 +89,9 @@ export async function applyResultToResources(extractDir: string, resources: Reso
 
       const sourceExists = await fs.promises.stat(sourcePath).then(() => true).catch(() => false);
       if (sourceExists) {
+        // Clear target directory first to handle deleted files
+        await fs.promises.rm(targetPath, { recursive: true, force: true });
+        await fs.promises.mkdir(targetPath, { recursive: true });
         await copyDirectory(sourcePath, targetPath);
       }
     }

@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
-import { createArchive, extractArchive } from '../src/utils/index.js';
+import { createArchive, extractArchive, applyResultToResources } from '../src/utils/index.js';
 
 describe('Archive Utils', () => {
   let tempDir: string;
@@ -73,6 +73,64 @@ describe('Archive Utils', () => {
 
       const nestedContent = await fs.promises.readFile(path.join(targetDir, 'subdir', 'nested.txt'), 'utf-8');
       expect(nestedContent).toBe('nested content');
+    });
+  });
+
+  describe('applyResultToResources', () => {
+    it('should remove deleted files from target directory', async () => {
+      // Setup: create original target directory with files
+      const targetDir = path.join(tempDir, 'target-resource');
+      await fs.promises.mkdir(targetDir, { recursive: true });
+      await fs.promises.writeFile(path.join(targetDir, 'keep.txt'), 'keep this');
+      await fs.promises.writeFile(path.join(targetDir, 'delete-me.txt'), 'this will be deleted');
+      await fs.promises.mkdir(path.join(targetDir, 'subdir'));
+      await fs.promises.writeFile(path.join(targetDir, 'subdir', 'also-delete.txt'), 'also deleted');
+
+      // Create extract directory simulating executor result (without deleted files)
+      const extractDir = path.join(tempDir, 'extract');
+      const resourceDir = path.join(extractDir, 'my-resource');
+      await fs.promises.mkdir(resourceDir, { recursive: true });
+      await fs.promises.writeFile(path.join(resourceDir, 'keep.txt'), 'modified content');
+      await fs.promises.writeFile(path.join(resourceDir, 'new-file.txt'), 'new file');
+
+      // Apply snapshot
+      await applyResultToResources(extractDir, [
+        { name: 'my-resource', source: targetDir, mode: 'rw' },
+      ]);
+
+      // Verify: kept file is updated
+      const keepContent = await fs.promises.readFile(path.join(targetDir, 'keep.txt'), 'utf-8');
+      expect(keepContent).toBe('modified content');
+
+      // Verify: new file exists
+      const newFileExists = await fs.promises.access(path.join(targetDir, 'new-file.txt')).then(() => true).catch(() => false);
+      expect(newFileExists).toBe(true);
+
+      // Verify: deleted files are gone
+      const deletedFileExists = await fs.promises.access(path.join(targetDir, 'delete-me.txt')).then(() => true).catch(() => false);
+      expect(deletedFileExists).toBe(false);
+
+      const deletedDirExists = await fs.promises.access(path.join(targetDir, 'subdir')).then(() => true).catch(() => false);
+      expect(deletedDirExists).toBe(false);
+    });
+
+    it('should not affect ro resources', async () => {
+      const targetDir = path.join(tempDir, 'ro-resource');
+      await fs.promises.mkdir(targetDir, { recursive: true });
+      await fs.promises.writeFile(path.join(targetDir, 'original.txt'), 'original');
+
+      const extractDir = path.join(tempDir, 'extract');
+      const resourceDir = path.join(extractDir, 'ro-resource');
+      await fs.promises.mkdir(resourceDir, { recursive: true });
+      await fs.promises.writeFile(path.join(resourceDir, 'original.txt'), 'modified');
+
+      await applyResultToResources(extractDir, [
+        { name: 'ro-resource', source: targetDir, mode: 'ro' },
+      ]);
+
+      // ro resource should not be modified
+      const content = await fs.promises.readFile(path.join(targetDir, 'original.txt'), 'utf-8');
+      expect(content).toBe('original');
     });
   });
 });
