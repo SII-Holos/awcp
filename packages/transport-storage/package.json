@@ -1,6 +1,6 @@
 {
   "name": "@awcp/transport-storage",
-  "version": "0.0.12",
+  "version": "0.0.13",
   "description": "AWCP Storage Transport - URL-based storage transfer for workspace delegation",
   "type": "module",
   "main": "./dist/index.js",
@@ -22,8 +22,8 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@awcp/core": "^0.0.12",
-    "@awcp/transport-archive": "^0.0.12"
+    "@awcp/core": "^0.0.13",
+    "@awcp/transport-archive": "^0.0.13"
   },
   "keywords": [
     "awcp",
