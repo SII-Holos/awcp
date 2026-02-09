@@ -38,6 +38,10 @@ async function main() {
 
   const app = express();
 
+  // Increase body size limit for large workspace transfers
+  app.use(express.json({ limit: '50mb' }));
+  app.use(express.urlencoded({ limit: '50mb', extended: true }));
+
   app.use(
     `/${AGENT_CARD_PATH}`,
     agentCardHandler({ agentCardProvider: requestHandler }) as unknown as express.RequestHandler,

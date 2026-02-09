@@ -36,6 +36,7 @@ import { AdmissionController } from './admission.js';
 import { EnvironmentBuilder } from './environment-builder.js';
 import { ExecutorClient } from './executor-client.js';
 import { SnapshotStore } from './snapshot-store.js';
+import type { ArchiveTransport } from '@awcp/transport-archive';
 
 export interface DelegatorServiceOptions {
   config: DelegatorConfig;
@@ -212,6 +213,23 @@ export class DelegatorService implements DelegatorRequestHandler {
     this.delegations.set(delegation.id, updated);
 
     await this.executorClient.sendStart(executorUrl, startMessage);
+
+    // Chunked upload
+    if (this.transport.type === 'archive') {
+      const archiveTransport = this.transport as unknown as ArchiveTransport;
+      if (archiveTransport.isChunkedMode(delegation.id)) {
+        console.log(`[AWCP:Delegator] Starting chunked upload for ${delegation.id}`);
+        try {
+          await archiveTransport.uploadChunks(delegation.id, executorUrl);
+          console.log(`[AWCP:Delegator] Chunked upload complete for ${delegation.id}`);
+        } catch (error) {
+          console.error(`[AWCP:Delegator] Chunked upload failed for ${delegation.id}:`, error);
+          await this.cleanup(delegation.id);
+          throw error;
+        }
+      }
+    }
+
     this.config.hooks.onDelegationStarted?.(updated);
 
     this.subscribeToTaskEvents(delegation.id, executorUrl);

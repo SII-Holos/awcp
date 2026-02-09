@@ -65,6 +65,20 @@ export interface TaskResultResponse {
   reason?: string;
 }
 
+/**
+ * 分块状态响应
+ */
+export interface ChunkStatusResponse {
+  /** 是否存在该 delegation 的分块接收器 */
+  exists: boolean;
+  /** 已接收的分块索引 */
+  received: number[];
+  /** 缺失的分块索引 */
+  missing: number[];
+  /** 是否已完成 */
+  complete: boolean;
+}
+
 export interface ExecutorRequestHandler {
   handleMessage(message: AwcpMessage): Promise<AwcpMessage | null>;
   subscribeTask(delegationId: string, callback: (event: TaskEvent) => void): () => void;
@@ -72,6 +86,21 @@ export interface ExecutorRequestHandler {
   acknowledgeResult(delegationId: string): void;
   cancelDelegation(delegationId: string): Promise<void>;
   getStatus(): ExecutorServiceStatus;
+
+  /**
+   * 接收单个分块
+   */
+  receiveChunk(delegationId: string, index: number, data: string, checksum: string): Promise<void>;
+
+  /**
+   * 完成分块传输，触发组装
+   */
+  completeChunks(delegationId: string, totalChecksum: string): Promise<void>;
+
+  /**
+   * 获取分块接收状态（用于断点续传）
+   */
+  getChunkStatus(delegationId: string): ChunkStatusResponse;
 }
 
 // ========== Delegator Service ==========

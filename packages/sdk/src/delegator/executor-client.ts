@@ -18,7 +18,7 @@ export class ExecutorClient {
   private sseRetryDelayMs: number;
 
   constructor(options?: ExecutorClientOptions) {
-    this.timeout = options?.timeout ?? 30000;
+    this.timeout = options?.timeout ?? 300000; // 5 minutes for large transfers
     this.sseMaxRetries = options?.sseMaxRetries ?? 3;
     this.sseRetryDelayMs = options?.sseRetryDelayMs ?? 2000;
   }

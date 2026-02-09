@@ -112,9 +112,29 @@ export interface SshfsWorkDirInfo {
   options?: Record<string, string>;
 }
 
+/**
+ * 分块传输元数据
+ */
+export interface ChunkedArchiveInfo {
+  /** 原始 ZIP 文件大小 (bytes) */
+  totalSize: number;
+  /** 每块大小 (bytes) */
+  chunkSize: number;
+  /** 分块总数 */
+  chunkCount: number;
+  /** 整体 SHA256 校验和 */
+  totalChecksum: string;
+  /** 每个分块的 SHA256 校验和 */
+  chunkChecksums: string[];
+}
+
 export interface ArchiveWorkDirInfo {
   transport: 'archive';
-  workspaceBase64: string;
+  /** 小文件：内联 base64（向后兼容） */
+  workspaceBase64?: string;
+  /** 大文件：分块传输元数据 */
+  chunked?: ChunkedArchiveInfo;
+  /** 整体校验和 */
   checksum: string;
 }
 
