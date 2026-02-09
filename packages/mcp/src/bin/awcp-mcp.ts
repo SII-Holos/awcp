@@ -6,6 +6,13 @@
  * Automatically starts the Delegator Daemon if not already running.
  */
 
+// TODO: Replace with Logger injection in @awcp/sdk for structured, configurable logging
+// MCP uses stdio for JSON-RPC — any console.log (stdout) corrupts the protocol stream.
+// Redirect all console output to stderr before importing anything that might log.
+console.log = console.error;
+console.info = console.error;
+console.warn = console.error;
+
 import { createAwcpMcpServer } from '../server.js';
 import { ensureDaemonRunning, type AutoDaemonOptions } from '../auto-daemon.js';
 import { discoverPeers, type PeersContext } from '../peer-discovery.js';
