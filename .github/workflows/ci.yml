@@ -22,6 +22,12 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Clean stale build artifacts
+        run: |
+          find packages -name "*.tsbuildinfo" -delete 2>/dev/null || true
+          find packages -name "dist" -type d -exec rm -rf {} + 2>/dev/null || true
+          find examples -name "dist" -type d -exec rm -rf {} + 2>/dev/null || true
+
       - name: Build
         run: npm run build
 
