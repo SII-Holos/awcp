@@ -1,41 +1,29 @@
 import { stat, readdir } from 'node:fs/promises';
-import { join } from 'node:path';
+import { join, relative } from 'node:path';
+import { WorkspaceTooLargeError, SensitiveFilesError } from '@awcp/core';
 import { DEFAULT_ADMISSION } from './config.js';
 
 /**
  * Admission control configuration
  */
 export interface AdmissionConfig {
-  /** Maximum total bytes allowed */
   maxTotalBytes?: number;
-  /** Maximum file count allowed */
   maxFileCount?: number;
-  /** Maximum single file size */
   maxSingleFileBytes?: number;
+  sensitivePatterns?: string[];
+  skipSensitiveCheck?: boolean;
 }
 
-/**
- * Workspace statistics from admission scan
- */
 export interface WorkspaceStats {
   estimatedBytes?: number;
   fileCount?: number;
   largestFileBytes?: number;
-}
-
-/**
- * Admission check result
- */
-export interface AdmissionResult {
-  allowed: boolean;
-  stats?: WorkspaceStats;
-  hint?: string;
+  sensitiveFiles?: string[];
 }
 
 /**
  * Performs preflight checks on workspace before allowing delegation.
- * Protects the system from oversized workspaces that could overwhelm
- * network or storage resources.
+ * Protects the system from oversized workspaces and sensitive file leaks.
  */
 export class AdmissionController {
   private config: AdmissionConfig;
@@ -44,7 +32,7 @@ export class AdmissionController {
     this.config = config ?? {};
   }
 
-  async check(localDir: string): Promise<AdmissionResult> {
+  async check(localDir: string, delegationId?: string): Promise<WorkspaceStats> {
     try {
       const stats = await this.scanWorkspace(localDir);
       
@@ -53,34 +41,40 @@ export class AdmissionController {
       const maxSingle = this.config.maxSingleFileBytes ?? DEFAULT_ADMISSION.maxSingleFileBytes;
 
       if (stats.estimatedBytes && stats.estimatedBytes > maxTotal) {
-        return {
-          allowed: false,
+        throw new WorkspaceTooLargeError(
           stats,
-          hint: `Workspace size (${this.formatBytes(stats.estimatedBytes)}) exceeds limit (${this.formatBytes(maxTotal)}). Consider selecting a smaller subdirectory.`,
-        };
+          `Workspace size (${this.formatBytes(stats.estimatedBytes)}) exceeds limit (${this.formatBytes(maxTotal)}). Consider selecting a smaller subdirectory.`,
+          delegationId,
+        );
       }
 
       if (stats.fileCount && stats.fileCount > maxCount) {
-        return {
-          allowed: false,
+        throw new WorkspaceTooLargeError(
           stats,
-          hint: `File count (${stats.fileCount}) exceeds limit (${maxCount}). Consider excluding node_modules, build artifacts, or data directories.`,
-        };
+          `File count (${stats.fileCount}) exceeds limit (${maxCount}). Consider excluding node_modules, build artifacts, or data directories.`,
+          delegationId,
+        );
       }
 
       if (stats.largestFileBytes && stats.largestFileBytes > maxSingle) {
-        return {
-          allowed: false,
+        throw new WorkspaceTooLargeError(
           stats,
-          hint: `Largest file (${this.formatBytes(stats.largestFileBytes)}) exceeds limit (${this.formatBytes(maxSingle)}). Consider excluding large binary files.`,
-        };
+          `Largest file (${this.formatBytes(stats.largestFileBytes)}) exceeds limit (${this.formatBytes(maxSingle)}). Consider excluding large binary files.`,
+          delegationId,
+        );
       }
 
-      return { allowed: true, stats };
+      const skipSensitive = this.config.skipSensitiveCheck ?? false;
+      if (!skipSensitive && stats.sensitiveFiles && stats.sensitiveFiles.length > 0) {
+        throw new SensitiveFilesError(stats.sensitiveFiles, undefined, delegationId);
+      }
+
+      return stats;
     } catch (error) {
+      if (error instanceof WorkspaceTooLargeError || error instanceof SensitiveFilesError) throw error;
       // Fail open for usability - real implementations may want to fail closed
       console.warn('[AWCP:Admission] Check failed, allowing by default:', error);
-      return { allowed: true };
+      return {};
     }
   }
 
@@ -88,6 +82,8 @@ export class AdmissionController {
     let totalBytes = 0;
     let fileCount = 0;
     let largestFileBytes = 0;
+    const sensitiveFiles: string[] = [];
+    const patterns = this.config.sensitivePatterns ?? [...DEFAULT_ADMISSION.sensitivePatterns];
 
     const scan = async (dir: string): Promise<void> => {
       const entries = await readdir(dir, { withFileTypes: true });
@@ -96,12 +92,14 @@ export class AdmissionController {
         const fullPath = join(dir, entry.name);
         
         if (entry.isDirectory()) {
-          // Skip directories that shouldn't be delegated
           if (entry.name === 'node_modules' || entry.name === '.git') {
             continue;
           }
           await scan(fullPath);
         } else if (entry.isFile()) {
+          if (this.matchesSensitivePattern(entry.name, patterns)) {
+            sensitiveFiles.push(relative(localDir, fullPath));
+          }
           try {
             const fileStat = await stat(fullPath);
             const size = fileStat.size;
@@ -119,7 +117,22 @@ export class AdmissionController {
 
     await scan(localDir);
 
-    return { estimatedBytes: totalBytes, fileCount, largestFileBytes };
+    return { estimatedBytes: totalBytes, fileCount, largestFileBytes, sensitiveFiles };
+  }
+
+  private matchesSensitivePattern(fileName: string, patterns: readonly string[]): boolean {
+    for (const pattern of patterns) {
+      if (this.globMatch(fileName, pattern)) return true;
+    }
+    return false;
+  }
+
+  private globMatch(name: string, pattern: string): boolean {
+    const regex = pattern
+      .replace(/[.+^${}()|[\]\\]/g, '\\$&')
+      .replace(/\*/g, '.*')
+      .replace(/\?/g, '.');
+    return new RegExp(`^${regex}$`).test(name);
   }
 
   private formatBytes(bytes: number): string {
