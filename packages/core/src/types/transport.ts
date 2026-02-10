@@ -25,13 +25,18 @@ export interface TransportSetupParams {
   workDir: string;
 }
 
-export interface TransportTeardownParams {
+export interface TransportReleaseParams {
   delegationId: string;
   workDir: string;
 }
 
-export interface TransportTeardownResult {
-  snapshotBase64?: string;
+export interface TransportCaptureSnapshotParams {
+  delegationId: string;
+  workDir: string;
+}
+
+export interface TransportCaptureSnapshotResult {
+  snapshotBase64: string;
 }
 
 export interface ResourceMapping {
@@ -55,18 +60,23 @@ export interface DependencyCheckResult {
 export interface DelegatorTransportAdapter {
   readonly type: TransportType;
   readonly capabilities: TransportCapabilities;
+  initialize?(): Promise<void>;
+  shutdown?(): Promise<void>;
   prepare(params: TransportPrepareParams): Promise<TransportPrepareResult>;
   applySnapshot?(params: TransportApplySnapshotParams): Promise<void>;
-  cleanup(delegationId: string): Promise<void>;
+  release(delegationId: string): Promise<void>;
 }
 
 /** Transport adapter for Executor side */
 export interface ExecutorTransportAdapter {
   readonly type: TransportType;
   readonly capabilities: TransportCapabilities;
+  initialize?(workDir: string): Promise<void>;
+  shutdown?(): Promise<void>;
   checkDependency(): Promise<DependencyCheckResult>;
   setup(params: TransportSetupParams): Promise<string>;
-  teardown(params: TransportTeardownParams): Promise<TransportTeardownResult>;
+  captureSnapshot?(params: TransportCaptureSnapshotParams): Promise<TransportCaptureSnapshotResult>;
+  release(params: TransportReleaseParams): Promise<void>;
 }
 
 /** Full transport adapter implementing both sides */

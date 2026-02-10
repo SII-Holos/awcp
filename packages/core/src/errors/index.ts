@@ -7,6 +7,7 @@ export const ErrorCodes = {
   WORKSPACE_TOO_LARGE: 'WORKSPACE_TOO_LARGE',
   WORKSPACE_NOT_FOUND: 'WORKSPACE_NOT_FOUND',
   WORKSPACE_INVALID: 'WORKSPACE_INVALID',
+  SENSITIVE_FILES: 'SENSITIVE_FILES',
   WORKDIR_DENIED: 'WORKDIR_DENIED',
   START_EXPIRED: 'START_EXPIRED',
   EXPIRED: 'EXPIRED',
@@ -95,9 +96,22 @@ export class WorkspaceTooLargeError extends AwcpError {
   }
 }
 
-/**
- * Error: Workspace directory not found
- */
+export class SensitiveFilesError extends AwcpError {
+  constructor(
+    public readonly files: string[],
+    hint?: string,
+    delegationId?: string,
+  ) {
+    super(
+      ErrorCodes.SENSITIVE_FILES,
+      `Sensitive files detected: ${files.join(', ')}`,
+      hint ?? 'Remove or exclude sensitive files before delegating',
+      delegationId,
+    );
+    this.name = 'SensitiveFilesError';
+  }
+}
+
 export class WorkspaceNotFoundError extends AwcpError {
   constructor(workspacePath: string, hint?: string, delegationId?: string) {
     super(
