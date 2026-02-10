@@ -56,14 +56,21 @@ export class HttpListener implements ListenerAdapter {
       res.setHeader('X-Accel-Buffering', 'no');
       res.flushHeaders();
 
+      // Prevent socket idle timeout (~5min) during long-running tasks
+      const heartbeat = setInterval(() => res.write(': keepalive\n\n'), 30_000);
+
       const unsubscribe = handler.subscribeTask(taskId, (event: TaskEvent) => {
         res.write(`data: ${JSON.stringify(event)}\n\n`);
         if (event.type === 'done' || event.type === 'error') {
+          clearInterval(heartbeat);
           res.end();
         }
       });
 
-      req.on('close', () => unsubscribe());
+      req.on('close', () => {
+        clearInterval(heartbeat);
+        unsubscribe();
+      });
     });
 
     this.router.get('/tasks/:taskId/result', (req, res) => {

@@ -6,6 +6,8 @@
  */
 
 import { v4 as uuidv4 } from 'uuid';
+import http from 'node:http';
+import https from 'node:https';
 import type { Message } from '@a2a-js/sdk';
 import type { AgentExecutor, RequestContext, ExecutionEventBus } from '@a2a-js/sdk/server';
 
@@ -104,16 +106,14 @@ export class SynergyExecutor implements AgentExecutor {
   };
 
   private async executeWithSynergy(prompt: string): Promise<string> {
-    // Calculate timeout based on lease expiry or default
     const timeoutMs = this.getTimeoutMs();
     console.log(`[SynergyExecutor] Request timeout: ${Math.round(timeoutMs / 1000)}s`);
 
-    // Create abort controller for timeout
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
     try {
-      // Create session with working directory
+      // Create session (fast call, standard fetch is fine)
       const sessionRes = await fetch(`${this.synergyUrl}/session`, {
         method: 'POST',
         headers: {
@@ -131,39 +131,58 @@ export class SynergyExecutor implements AgentExecutor {
       const session = await sessionRes.json() as { id: string };
       console.log(`[SynergyExecutor] Created session: ${session.id}`);
 
-      // Send prompt and wait for response
-      // Synergy API expects parts array: [{ type: 'text', text: '...' }]
-      // Note: This can take a long time for complex tasks
-      const promptRes = await fetch(`${this.synergyUrl}/session/${session.id}/message`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-synergy-directory': this.workingDirectory!,
-        },
-        body: JSON.stringify({
-          parts: [{ type: 'text', text: prompt }],
-        }),
-        signal: controller.signal,
-      });
+      // Send prompt and wait for response (long-polling, can take 10+ minutes)
+      // Uses node:http to disable socket idle timeout that kills fetch after ~5min
+      const result = await this.longPollPost(
+        `${this.synergyUrl}/session/${session.id}/message`,
+        { parts: [{ type: 'text', text: prompt }] },
+        { 'Content-Type': 'application/json', 'x-synergy-directory': this.workingDirectory! },
+        controller.signal,
+      );
 
-      if (!promptRes.ok) {
-        throw new Error(`Failed to send prompt: ${promptRes.status}`);
-      }
-
-      const result = await promptRes.json() as { info: any; parts: any[] };
       console.log(`[SynergyExecutor] Got response with ${result.parts?.length || 0} parts`);
-
-      // Extract text from response parts
       return this.extractResponseText(result);
     } catch (error) {
       if (error instanceof Error && error.name === 'AbortError') {
-        const timeoutMs = this.getTimeoutMs();
         throw new Error(`Synergy request timed out after ${Math.round(timeoutMs / 1000)}s`);
       }
       throw error;
     } finally {
       clearTimeout(timeoutId);
     }
+  }
+
+  /**
+   * HTTP POST with TCP keepalive and no socket idle timeout.
+   * Standard fetch (undici) has a ~5min bodyTimeout that kills long-polling connections.
+   */
+  private longPollPost(
+    url: string, body: unknown, headers: Record<string, string>, signal: AbortSignal,
+  ): Promise<any> {
+    return new Promise((resolve, reject) => {
+      const parsed = new URL(url);
+      const transport = parsed.protocol === 'https:' ? https : http;
+
+      const req = transport.request(parsed, { method: 'POST', headers, signal }, (res) => {
+        let data = '';
+        res.on('data', (chunk: string) => { data += chunk; });
+        res.on('end', () => {
+          if (res.statusCode && res.statusCode >= 200 && res.statusCode < 300) {
+            resolve(JSON.parse(data));
+          } else {
+            reject(new Error(`Failed to send prompt: ${res.statusCode}`));
+          }
+        });
+      });
+
+      req.on('socket', (socket) => {
+        socket.setTimeout(0);
+        socket.setKeepAlive(true, 30_000);
+      });
+      req.on('error', reject);
+      req.write(JSON.stringify(body));
+      req.end();
+    });
   }
 
   private extractResponseText(result: { info: any; parts: any[] }): string {
