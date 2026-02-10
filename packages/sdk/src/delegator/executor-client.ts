@@ -49,13 +49,20 @@ export class ExecutorClient {
     let retries = 0;
     while (retries < this.sseMaxRetries) {
       try {
+        console.log(`[AWCP:Client] SSE connecting to ${url} (attempt ${retries + 1}/${this.sseMaxRetries})`);
         yield* this.readSSE(url);
+        console.log(`[AWCP:Client] SSE stream for ${delegationId} closed normally`);
         return;
       } catch (error) {
         retries++;
-        if (retries >= this.sseMaxRetries) throw error;
-        console.log(`[AWCP:Client] SSE retry ${retries}/${this.sseMaxRetries} for ${delegationId}`);
-        await new Promise(r => setTimeout(r, this.sseRetryDelayMs * retries));
+        const msg = error instanceof Error ? error.message : String(error);
+        if (retries >= this.sseMaxRetries) {
+          console.error(`[AWCP:Client] SSE failed after ${this.sseMaxRetries} attempts for ${delegationId}: ${msg}`);
+          throw error;
+        }
+        const delayMs = this.sseRetryDelayMs * retries;
+        console.warn(`[AWCP:Client] SSE attempt ${retries} failed for ${delegationId}: ${msg}, retrying in ${delayMs}ms`);
+        await new Promise(r => setTimeout(r, delayMs));
       }
     }
   }

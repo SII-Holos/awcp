@@ -214,27 +214,33 @@ export class DelegatorService implements DelegatorRequestHandler {
     await this.executorClient.sendStart(executorUrl, startMessage);
     this.config.hooks.onDelegationStarted?.(updated);
 
+    console.log(`[AWCP:Delegator] START sent for ${delegation.id}, subscribing to SSE...`);
     this.subscribeToTaskEvents(delegation.id, executorUrl);
   }
 
   private async subscribeToTaskEvents(delegationId: string, executorUrl: string): Promise<void> {
     try {
-      console.log(`[AWCP:Delegator] Subscribing to SSE for ${delegationId}`);
+      console.log(`[AWCP:Delegator] Opening SSE stream for ${delegationId} → ${executorUrl}`);
       for await (const event of this.executorClient.subscribeTask(executorUrl, delegationId)) {
-        console.log(`[AWCP:Delegator] SSE event for ${delegationId}: ${event.type}`);
+        console.log(`[AWCP:Delegator] SSE event for ${delegationId}: type=${event.type}`);
         await this.handleTaskEvent(delegationId, event);
         if (event.type === 'done' || event.type === 'error') {
+          console.log(`[AWCP:Delegator] SSE stream ended for ${delegationId} (terminal event: ${event.type})`);
           break;
         }
       }
     } catch (error) {
-      console.error(`[AWCP:Delegator] SSE subscription error for ${delegationId}:`, error);
+      console.error(
+        `[AWCP:Delegator] SSE connection lost for ${delegationId}:`,
+        error instanceof Error ? error.message : error
+      );
       const delegation = this.delegations.get(delegationId);
       if (delegation && !['completed', 'error', 'cancelled'].includes(delegation.state)) {
+        console.error(`[AWCP:Delegator] Marking ${delegationId} as error (was ${delegation.state})`);
         delegation.state = 'error';
         delegation.error = {
           code: 'SSE_FAILED',
-          message: error instanceof Error ? error.message : 'SSE subscription failed',
+          message: `SSE connection to executor lost: ${error instanceof Error ? error.message : 'unknown error'}`,
         };
         this.delegations.set(delegationId, delegation);
       }
@@ -272,6 +278,10 @@ export class DelegatorService implements DelegatorRequestHandler {
     }
 
     if (event.type === 'error') {
+      console.error(
+        `[AWCP:Delegator] Executor reported error for ${delegationId}:` +
+        ` code=${event.code}, message=${event.message}`
+      );
       const errorMessage: ErrorMessage = {
         version: PROTOCOL_VERSION,
         type: 'ERROR',
@@ -396,9 +406,17 @@ export class DelegatorService implements DelegatorRequestHandler {
   async handleError(message: ErrorMessage): Promise<void> {
     const delegation = this.delegations.get(message.delegationId);
     if (!delegation) {
-      console.warn(`[AWCP:Delegator] Unknown delegation for ERROR: ${message.delegationId}`);
+      console.warn(
+        `[AWCP:Delegator] Received ERROR for unknown delegation ${message.delegationId}` +
+        ` (known=[${Array.from(this.delegations.keys()).join(',')}])`
+      );
       return;
     }
+
+    console.log(
+      `[AWCP:Delegator] Processing error for ${message.delegationId}` +
+      ` (state=${delegation.state}): ${message.code} - ${message.message}`
+    );
 
     this.transitionState(message.delegationId, { type: 'RECEIVE_ERROR', message });
 

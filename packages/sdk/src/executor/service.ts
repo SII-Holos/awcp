@@ -106,21 +106,36 @@ export class ExecutorService implements ExecutorRequestHandler {
   subscribeTask(delegationId: string, callback: (event: TaskEvent) => void): () => void {
     const delegation = this.activeDelegations.get(delegationId);
     if (!delegation) {
+      const completed = this.completedDelegations.get(delegationId);
+      const activeIds = Array.from(this.activeDelegations.keys());
+      const completedIds = Array.from(this.completedDelegations.keys());
+
+      const reason = completed
+        ? `delegation already ${completed.state} at ${completed.completedAt.toISOString()}`
+        : `delegation unknown to this executor instance`;
+
+      console.error(
+        `[AWCP:Executor] SSE subscribe rejected for ${delegationId}: ${reason}` +
+        ` (active=[${activeIds.join(',')}], completed=[${completedIds.join(',')}])`
+      );
+
       const errorEvent: TaskErrorEvent = {
         delegationId,
         type: 'error',
         timestamp: new Date().toISOString(),
         code: 'NOT_FOUND',
-        message: 'Delegation not found',
+        message: `Delegation not found on executor: ${reason}`,
       };
       callback(errorEvent);
       return () => {};
     }
 
+    console.log(`[AWCP:Executor] SSE subscriber attached for ${delegationId}`);
     const handler = (event: TaskEvent) => callback(event);
     delegation.eventEmitter.on('event', handler);
 
     return () => {
+      console.log(`[AWCP:Executor] SSE subscriber detached for ${delegationId}`);
       delegation.eventEmitter.off('event', handler);
     };
   }
@@ -230,7 +245,10 @@ export class ExecutorService implements ExecutorRequestHandler {
 
     const pending = this.pendingInvitations.get(delegationId);
     if (!pending) {
-      console.warn(`[AWCP:Executor] Unknown delegation for START: ${delegationId}`);
+      console.warn(
+        `[AWCP:Executor] START rejected for unknown delegation ${delegationId}` +
+        ` (pending=[${Array.from(this.pendingInvitations.keys()).join(',')}])`
+      );
       return;
     }
 
@@ -249,6 +267,11 @@ export class ExecutorService implements ExecutorRequestHandler {
       eventEmitter,
     });
 
+    console.log(
+      `[AWCP:Executor] Delegation ${delegationId} registered` +
+      ` (active=${this.activeDelegations.size}, workPath=${workPath})`
+    );
+
     // Task execution runs async - don't await
     this.executeTask(delegationId, start, workPath, pending.invite.task, start.lease, pending.invite.environment, eventEmitter);
   }
@@ -263,8 +286,10 @@ export class ExecutorService implements ExecutorRequestHandler {
     eventEmitter: EventEmitter,
   ): Promise<void> {
     try {
+      console.log(`[AWCP:Executor] Task ${delegationId} preparing workspace...`);
       await this.workspace.prepare(workPath);
 
+      console.log(`[AWCP:Executor] Task ${delegationId} setting up transport (${this.transport.type})...`);
       const actualPath = await this.transport.setup({
         delegationId,
         workDirInfo: start.workDir,
@@ -273,6 +298,7 @@ export class ExecutorService implements ExecutorRequestHandler {
 
       this.config.hooks.onTaskStart?.({ delegationId, workPath: actualPath, task, lease, environment });
 
+      console.log(`[AWCP:Executor] Task ${delegationId} executing (listeners=${eventEmitter.listenerCount('event')})...`);
       const statusEvent: TaskStatusEvent = {
         delegationId,
         type: 'status',
@@ -289,6 +315,7 @@ export class ExecutorService implements ExecutorRequestHandler {
         environment,
       });
 
+      console.log(`[AWCP:Executor] Task ${delegationId} completed, tearing down transport...`);
       const teardownResult = await this.transport.teardown({ delegationId, workDir: actualPath });
 
       const snapshotId = generateSnapshotId();
@@ -318,6 +345,10 @@ export class ExecutorService implements ExecutorRequestHandler {
       };
 
       eventEmitter.emit('event', doneEvent);
+      console.log(
+        `[AWCP:Executor] Task ${delegationId} done event emitted` +
+        ` (listeners=${eventEmitter.listenerCount('event')})`
+      );
       this.config.hooks.onTaskComplete?.(delegationId, result.summary);
 
       this.completedDelegations.set(delegationId, {
@@ -333,9 +364,11 @@ export class ExecutorService implements ExecutorRequestHandler {
       });
       this.scheduleResultCleanup(delegationId);
 
+      console.log(`[AWCP:Executor] Delegation ${delegationId} moved to completed, removing from active`);
       this.activeDelegations.delete(delegationId);
       await this.workspace.release(actualPath);
     } catch (error) {
+      console.error(`[AWCP:Executor] Task ${delegationId} failed:`, error instanceof Error ? error.message : error);
       const delegation = this.activeDelegations.get(delegationId);
       if (delegation) {
         await this.transport.teardown({ delegationId, workDir: delegation.workPath }).catch(() => {});
@@ -352,6 +385,10 @@ export class ExecutorService implements ExecutorRequestHandler {
       };
 
       eventEmitter.emit('event', errorEvent);
+      console.log(
+        `[AWCP:Executor] Task ${delegationId} error event emitted` +
+        ` (listeners=${eventEmitter.listenerCount('event')})`
+      );
       this.config.hooks.onError?.(
         delegationId,
         error instanceof Error ? error : new Error(String(error))
@@ -369,16 +406,19 @@ export class ExecutorService implements ExecutorRequestHandler {
       });
       this.scheduleResultCleanup(delegationId);
 
+      console.log(`[AWCP:Executor] Delegation ${delegationId} moved to error state, removing from active`);
       this.activeDelegations.delete(delegationId);
     }
   }
 
   private async handleError(error: ErrorMessage): Promise<void> {
     const { delegationId } = error;
+    console.log(`[AWCP:Executor] Received ERROR message for ${delegationId}: ${error.code} - ${error.message}`);
 
     const delegation = this.activeDelegations.get(delegationId);
     if (delegation) {
       await this.transport.teardown({ delegationId, workDir: delegation.workPath }).catch(() => {});
+      console.log(`[AWCP:Executor] Delegation ${delegationId} removed by delegator error`);
       this.activeDelegations.delete(delegationId);
       await this.workspace.release(delegation.workPath);
     }
@@ -394,6 +434,7 @@ export class ExecutorService implements ExecutorRequestHandler {
   async cancelDelegation(delegationId: string): Promise<void> {
     const delegation = this.activeDelegations.get(delegationId);
     if (delegation) {
+      console.log(`[AWCP:Executor] Cancelling active delegation ${delegationId}`);
       await this.transport.teardown({ delegationId, workDir: delegation.workPath }).catch(() => {});
       
       const errorEvent: TaskErrorEvent = {
@@ -405,6 +446,7 @@ export class ExecutorService implements ExecutorRequestHandler {
       };
       delegation.eventEmitter.emit('event', errorEvent);
       
+      console.log(`[AWCP:Executor] Delegation ${delegationId} removed by cancellation`);
       this.activeDelegations.delete(delegationId);
       await this.workspace.release(delegation.workPath);
       this.config.hooks.onError?.(

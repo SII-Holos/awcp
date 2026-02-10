@@ -465,7 +465,9 @@ function formatDelegationResult(delegation: Delegation): string {
   }
 
   if (delegation.state === 'error' && delegation.error) {
-    lines.push('', '--- Error ---', delegation.error.message);
+    lines.push('', '--- Error ---');
+    lines.push(`Code: ${delegation.error.code}`);
+    lines.push(`Message: ${delegation.error.message}`);
     if (delegation.error.hint) {
       lines.push(`Hint: ${delegation.error.hint}`);
     }
@@ -508,7 +510,9 @@ function formatDelegationStatus(delegation: Delegation): string {
       lines.push('Use delegate_snapshots to list, delegate_apply_snapshot or delegate_discard_snapshot to act');
     }
   } else if (delegation.state === 'error' && delegation.error) {
-    lines.push('', '--- Error ---', delegation.error.message);
+    lines.push('', '--- Error ---');
+    lines.push(`Code: ${delegation.error.code}`);
+    lines.push(`Message: ${delegation.error.message}`);
     if (delegation.error.hint) {
       lines.push(`Hint: ${delegation.error.hint}`);
     }

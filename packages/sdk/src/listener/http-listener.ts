@@ -49,6 +49,7 @@ export class HttpListener implements ListenerAdapter {
 
     this.router.get('/tasks/:taskId/events', (req, res) => {
       const { taskId } = req.params;
+      console.log(`[AWCP:HttpListener] SSE request received for task ${taskId}`);
       res.setHeader('Content-Type', 'text/event-stream');
       res.setHeader('Cache-Control', 'no-cache');
       res.setHeader('Connection', 'keep-alive');

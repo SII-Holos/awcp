@@ -98,7 +98,16 @@ export async function startDelegatorDaemon(config: DaemonConfig): Promise<Daemon
   app.get('/delegation/:id', (req, res) => {
     const delegation = service.getDelegation(req.params.id);
     if (!delegation) {
-      res.status(404).json({ error: 'Delegation not found' });
+      const known = Array.from((service as any).delegations?.keys?.() ?? []);
+      console.warn(
+        `[AWCP:Daemon] GET /delegation/${req.params.id} not found` +
+        ` (known=${known.length} delegations: [${known.join(',')}])`
+      );
+      res.status(404).json({
+        error: `Delegation not found in daemon: no delegation with id ${req.params.id}`,
+        hint: 'The daemon may have been restarted, losing in-memory state',
+        knownDelegations: known.length,
+      });
       return;
     }
     res.json(delegation);

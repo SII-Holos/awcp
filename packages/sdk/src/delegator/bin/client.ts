@@ -201,10 +201,13 @@ export class DelegatorDaemonClient {
           error?: string; 
           hint?: string;
           code?: string;
+          knownDelegations?: number;
         };
         const message = errorBody.error ?? `HTTP ${response.status}: ${response.statusText}`;
-        const hint = errorBody.hint;
-        throw new Error(hint ? `${message} - ${hint}` : message);
+        const parts = [message];
+        if (errorBody.hint) parts.push(`Hint: ${errorBody.hint}`);
+        if (errorBody.knownDelegations !== undefined) parts.push(`Known delegations: ${errorBody.knownDelegations}`);
+        throw new Error(parts.join('. '));
       }
 
       return response.json() as Promise<T>;
