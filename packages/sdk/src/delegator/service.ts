@@ -84,16 +84,33 @@ export class DelegatorService implements DelegatorRequestHandler {
   async initialize(): Promise<void> {
     await this.transport.initialize?.();
 
-    const persisted = await this.delegationManager.loadAll();
-    const knownIds = new Set(persisted.map(d => d.id));
+    const persistedDelegations = await this.delegationManager.loadAll();
+    const knownIds = new Set(persistedDelegations.map(d => d.id));
 
     await this.environmentManager.cleanupStale(knownIds);
     await this.snapshotManager.cleanupStale(knownIds);
 
-    for (const delegation of persisted) {
+    for (const delegation of persistedDelegations) {
       this.delegations.set(delegation.id, delegation);
       this.stateMachines.set(delegation.id, new DelegationStateMachine(delegation.state));
     }
+  }
+
+  async shutdown(): Promise<void> {
+    if (this.cleanupTimer) {
+      clearInterval(this.cleanupTimer);
+      this.cleanupTimer = undefined;
+    }
+
+    await this.transport.shutdown?.();
+
+    for (const id of this.delegations.keys()) {
+      await this.environmentManager.release(id).catch(() => {});
+      await this.snapshotManager.cleanupDelegation(id).catch(() => {});
+    }
+
+    this.delegations.clear();
+    this.stateMachines.clear();
   }
 
   async delegate(params: DelegateParams): Promise<string> {
@@ -111,49 +128,49 @@ export class DelegatorService implements DelegatorRequestHandler {
     const accessMode = params.accessMode ?? this.config.delegation.lease.accessMode;
     const snapshotMode = params.snapshotMode ?? this.config.delegation.snapshot.mode;
 
-    const { envRoot } = await this.environmentManager.build(delegationId, params.environment);
-
-    const delegation = createDelegation({
-      id: delegationId,
-      peerUrl: params.executorUrl,
-      environment: params.environment,
-      task: params.task,
-      leaseConfig: { ttlSeconds, accessMode },
-      snapshotPolicy: {
-        mode: snapshotMode,
-        retentionMs: this.config.delegation.snapshot.retentionMs,
-        maxSnapshots: this.config.delegation.snapshot.maxSnapshots,
-      },
-      exportPath: envRoot,
-    });
-
-    const stateMachine = new DelegationStateMachine();
-
-    this.delegations.set(delegationId, delegation);
-    this.stateMachines.set(delegationId, stateMachine);
-
-    const inviteMessage: InviteMessage = {
-      version: PROTOCOL_VERSION,
-      type: 'INVITE',
-      delegationId,
-      task: params.task,
-      lease: { ttlSeconds, accessMode },
-      environment: {
-        resources: params.environment.resources.map(r => ({
-          name: r.name,
-          type: r.type,
-          mode: r.mode,
-        })),
-      },
-      requirements: {
-        transport: this.transport.type,
-      },
-      ...(params.auth && { auth: params.auth }),
-    };
-
-    this.transitionState(delegationId, { type: 'SEND_INVITE', message: inviteMessage });
-
     try {
+      const { envRoot } = await this.environmentManager.build(delegationId, params.environment);
+
+      const delegation = createDelegation({
+        id: delegationId,
+        peerUrl: params.executorUrl,
+        environment: params.environment,
+        task: params.task,
+        leaseConfig: { ttlSeconds, accessMode },
+        snapshotPolicy: {
+          mode: snapshotMode,
+          retentionMs: this.config.delegation.snapshot.retentionMs,
+          maxSnapshots: this.config.delegation.snapshot.maxSnapshots,
+        },
+        exportPath: envRoot,
+      });
+
+      const stateMachine = new DelegationStateMachine();
+
+      this.delegations.set(delegationId, delegation);
+      this.stateMachines.set(delegationId, stateMachine);
+
+      const inviteMessage: InviteMessage = {
+        version: PROTOCOL_VERSION,
+        type: 'INVITE',
+        delegationId,
+        task: params.task,
+        lease: { ttlSeconds, accessMode },
+        environment: {
+          resources: params.environment.resources.map(r => ({
+            name: r.name,
+            type: r.type,
+            mode: r.mode,
+          })),
+        },
+        requirements: {
+          transport: this.transport.type,
+        },
+        ...(params.auth && { auth: params.auth }),
+      };
+
+      this.transitionState(delegationId, { type: 'SEND_INVITE', message: inviteMessage });
+
       const response = await this.executorClient.sendInvite(params.executorUrl, inviteMessage);
 
       if (response.type === 'ERROR') {
@@ -583,23 +600,6 @@ export class DelegatorService implements DelegatorRequestHandler {
         createdAt: d.createdAt,
       })),
     };
-  }
-
-  async shutdown(): Promise<void> {
-    if (this.cleanupTimer) {
-      clearInterval(this.cleanupTimer);
-      this.cleanupTimer = undefined;
-    }
-
-    await this.transport.shutdown?.();
-
-    for (const id of this.delegations.keys()) {
-      await this.environmentManager.release(id).catch(() => {});
-      await this.snapshotManager.cleanupDelegation(id).catch(() => {});
-    }
-
-    this.delegations.clear();
-    this.stateMachines.clear();
   }
 
   private shouldRelease(delegation: Delegation): boolean {

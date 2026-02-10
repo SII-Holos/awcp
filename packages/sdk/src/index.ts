@@ -21,7 +21,6 @@ export {
   type ListDelegationsResponse,
   AdmissionController,
   type AdmissionConfig,
-
   type WorkspaceStats,
   EnvironmentManager,
   type EnvironmentManifest,
@@ -38,8 +37,7 @@ export {
   ExecutorService,
   type ExecutorServiceOptions,
   type ExecutorConfig,
-  type ExecutorAdmissionConfig,
-  type ExecutorDefaults,
+  type AssignmentConfig,
   type ExecutorHooks,
   type TaskStartContext,
   WorkspaceManager,

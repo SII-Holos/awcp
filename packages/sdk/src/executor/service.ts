@@ -3,67 +3,38 @@
  */
 
 import { EventEmitter } from 'node:events';
+import { join } from 'node:path';
 import {
   type InviteMessage,
   type StartMessage,
   type AcceptMessage,
   type ErrorMessage,
   type AwcpMessage,
-  type TaskSpec,
-  type EnvironmentDeclaration,
-  type ExecutorConstraints,
+  type Assignment,
   type ExecutorTransportAdapter,
+  type ExecutorConstraints,
   type TaskEvent,
   type TaskStatusEvent,
   type TaskSnapshotEvent,
   type TaskDoneEvent,
   type TaskErrorEvent,
-  type ActiveLease,
   type ExecutorRequestHandler,
   type ExecutorServiceStatus,
   type TaskExecutor,
   type TaskResultResponse,
+  type AssignmentEvent,
+  AssignmentStateMachine,
   generateSnapshotId,
+  createAssignment,
   PROTOCOL_VERSION,
   ErrorCodes,
   AwcpError,
   CancelledError,
 } from '@awcp/core';
 import { type ExecutorConfig, type ResolvedExecutorConfig, resolveExecutorConfig } from './config.js';
+import { AdmissionController } from './admission.js';
+import { AssignmentManager } from './assignment-manager.js';
 import { WorkspaceManager } from './workspace-manager.js';
-
-interface PendingInvitation {
-  invite: InviteMessage;
-  eventEmitter: EventEmitter;
-  receivedAt: Date;
-}
-
-interface ActiveDelegation {
-  id: string;
-  workPath: string;
-  task: TaskSpec;
-  lease: ActiveLease;
-  environment: EnvironmentDeclaration;
-  startedAt: Date;
-  eventEmitter: EventEmitter;
-}
-
-interface CompletedDelegation {
-  id: string;
-  completedAt: Date;
-  state: 'completed' | 'error';
-  snapshot?: {
-    id: string;
-    summary: string;
-    highlights?: string[];
-    snapshotBase64?: string;
-  };
-  error?: {
-    code: string;
-    message: string;
-    hint?: string;
-  };
-}
 
 export interface ExecutorServiceOptions {
   executor: TaskExecutor;
@@ -71,269 +42,273 @@ export interface ExecutorServiceOptions {
 }
 
 export class ExecutorService implements ExecutorRequestHandler {
-  private executor: TaskExecutor;
   private config: ResolvedExecutorConfig;
   private transport: ExecutorTransportAdapter;
-  private workspace: WorkspaceManager;
-  private pendingInvitations = new Map<string, PendingInvitation>();
-  private activeDelegations = new Map<string, ActiveDelegation>();
-  private completedDelegations = new Map<string, CompletedDelegation>();
+  private executor: TaskExecutor;
+  private admissionController: AdmissionController;
+  private workspaceManager: WorkspaceManager;
+  private assignmentManager: AssignmentManager;
+  private assignments = new Map<string, Assignment>();
+  private stateMachines = new Map<string, AssignmentStateMachine>();
+  private eventEmitters = new Map<string, EventEmitter>();
+  private cleanupTimer?: ReturnType<typeof setInterval>;
 
   constructor(options: ExecutorServiceOptions) {
-    this.executor = options.executor;
     this.config = resolveExecutorConfig(options.config);
     this.transport = this.config.transport;
-    this.workspace = new WorkspaceManager(this.config.workDir);
+
+    this.executor = options.executor;
+
+    this.admissionController = new AdmissionController(this.config.admission);
+    this.workspaceManager = new WorkspaceManager(this.config.workDir);
+
+    this.assignmentManager = new AssignmentManager({
+      baseDir: join(this.config.workDir, '.awcp', 'assignments'),
+    });
   }
 
   async initialize(): Promise<void> {
     await this.transport.initialize?.(this.config.workDir);
-    await this.workspace.cleanupStale();
+
+    const persistedAssignments = await this.assignmentManager.loadAll();
+    const knownIds = new Set(persistedAssignments.map(a => a.id));
+
+    for (const assignment of persistedAssignments) {
+      this.assignments.set(assignment.id, assignment);
+      this.stateMachines.set(assignment.id, new AssignmentStateMachine(assignment.state));
+      if (assignment.state === 'pending' || assignment.state === 'active') {
+        this.eventEmitters.set(assignment.id, new EventEmitter());
+      }
+    }
+
+    await this.workspaceManager.cleanupStale(knownIds);
+    this.startCleanupTimer();
   }
 
   async shutdown(): Promise<void> {
-    await this.transport.shutdown?.();
-
-    for (const delegation of this.activeDelegations.values()) {
-      await this.workspace.release(delegation.workPath).catch(() => {});
+    if (this.cleanupTimer) {
+      clearInterval(this.cleanupTimer);
+      this.cleanupTimer = undefined;
     }
 
-    this.activeDelegations.clear();
-    this.pendingInvitations.clear();
-    this.completedDelegations.clear();
+    await this.transport.shutdown?.();
+
+    for (const id of this.assignments.keys()) {
+      await this.release(id).catch(() => {});
+    }
+
+    this.assignments.clear();
+    this.stateMachines.clear();
+    this.eventEmitters.clear();
   }
 
   async handleMessage(message: AwcpMessage): Promise<AwcpMessage | null> {
-    switch (message.type) {
-      case 'INVITE':
-        return this.handleInvite(message);
-      case 'START':
-        await this.handleStart(message);
-        return null;
-      case 'ERROR':
-        await this.handleError(message);
-        return null;
-      default:
-        throw new Error(`Unexpected message type: ${(message as AwcpMessage).type}`);
-    }
-  }
-
-  /**
-   * Subscribe to task events via SSE
-   */
-  subscribeTask(delegationId: string, callback: (event: TaskEvent) => void): () => void {
-    const active = this.activeDelegations.get(delegationId);
-    if (active) {
-      console.log(`[AWCP:Executor] SSE subscriber attached for ${delegationId}`);
-      const handler = (event: TaskEvent) => callback(event);
-      active.eventEmitter.on('event', handler);
-      return () => {
-        console.log(`[AWCP:Executor] SSE subscriber detached for ${delegationId}`);
-        active.eventEmitter.off('event', handler);
-      };
-    }
-
-    // SSE subscribed before START — attach to pending eventEmitter
-    const pending = this.pendingInvitations.get(delegationId);
-    if (pending) {
-      console.log(`[AWCP:Executor] SSE subscriber attached for pending ${delegationId}`);
-      const handler = (event: TaskEvent) => callback(event);
-      pending.eventEmitter.on('event', handler);
-      return () => {
-        console.log(`[AWCP:Executor] SSE subscriber detached for pending ${delegationId}`);
-        pending.eventEmitter.off('event', handler);
-      };
-    }
-
-    // Completed: replay terminal event (handles SSE reconnect after task finished)
-    const completed = this.completedDelegations.get(delegationId);
-    if (completed) {
-      console.log(`[AWCP:Executor] SSE reconnect for ${delegationId}, replaying ${completed.state} event`);
-      const event: TaskEvent = completed.state === 'completed'
-        ? {
-            delegationId, type: 'done', timestamp: completed.completedAt.toISOString(),
-            summary: completed.snapshot?.summary ?? 'Task completed',
-            highlights: completed.snapshot?.highlights,
-          }
-        : {
-            delegationId, type: 'error', timestamp: completed.completedAt.toISOString(),
-            code: completed.error?.code ?? ErrorCodes.TASK_FAILED,
-            message: completed.error?.message ?? 'Task failed',
-            hint: completed.error?.hint,
-          };
-      setImmediate(() => callback(event));
-      return () => {};
-    }
-
-    // Unknown delegation
-    console.error(`[AWCP:Executor] SSE subscribe rejected for ${delegationId}: unknown delegation`);
-    const errorEvent: TaskErrorEvent = {
-      delegationId, type: 'error', timestamp: new Date().toISOString(),
-      code: 'NOT_FOUND', message: 'Delegation not found on executor',
-    };
-    callback(errorEvent);
-    return () => {};
-  }
-
-  private async handleInvite(invite: InviteMessage): Promise<AcceptMessage | ErrorMessage> {
-    const { delegationId } = invite;
-
-    if (this.activeDelegations.size >= this.config.admission.maxConcurrentDelegations) {
-      return this.createErrorMessage(
-        delegationId,
-        ErrorCodes.DECLINED,
-        'Maximum concurrent delegations reached',
-        'Try again later when current tasks complete'
-      );
-    }
-
-    const maxTtl = this.config.admission.maxTtlSeconds;
-    if (invite.lease.ttlSeconds > maxTtl) {
-      return this.createErrorMessage(
-        delegationId,
-        ErrorCodes.DECLINED,
-        `Requested TTL (${invite.lease.ttlSeconds}s) exceeds maximum (${maxTtl}s)`,
-        `Request a shorter TTL (max: ${maxTtl}s)`
-      );
-    }
-
-    const allowedModes = this.config.admission.allowedAccessModes;
-    if (!allowedModes.includes(invite.lease.accessMode)) {
-      return this.createErrorMessage(
-        delegationId,
-        ErrorCodes.DECLINED,
-        `Access mode '${invite.lease.accessMode}' not allowed`,
-        `Allowed modes: ${allowedModes.join(', ')}`
-      );
-    }
-
-    const depCheck = await this.transport.checkDependency();
-    if (!depCheck.available) {
-      return this.createErrorMessage(
-        delegationId,
-        ErrorCodes.DEP_MISSING,
-        `Transport ${this.transport.type} is not available`,
-        depCheck.hint
-      );
-    }
-
-    if (this.config.hooks.onInvite) {
-      const accepted = await this.config.hooks.onInvite(invite);
-      if (!accepted) {
+    try {
+      switch (message.type) {
+        case 'INVITE':
+          return await this.handleInvite(message);
+        case 'START':
+          await this.handleStart(message);
+          return null;
+        case 'ERROR':
+          await this.handleError(message);
+          return null;
+        default:
+          throw new Error(`Unexpected message type: ${(message as AwcpMessage).type}`);
+      }
+    } catch (error) {
+      if (error instanceof AwcpError) {
         return this.createErrorMessage(
-          delegationId,
-          ErrorCodes.DECLINED,
-          'Invitation declined by policy',
-          'The agent declined this delegation request'
+          message.delegationId,
+          error.code,
+          error.message,
+          error.hint,
         );
       }
-    } else if (!this.config.defaults.autoAccept) {
-      this.pendingInvitations.set(delegationId, {
-        invite,
-        eventEmitter: new EventEmitter(),
-        receivedAt: new Date(),
-      });
-      return this.createErrorMessage(
-        delegationId,
-        ErrorCodes.DECLINED,
-        'Manual acceptance required but no hook provided',
-        'Configure autoAccept: true or provide onInvite hook'
-      );
+      throw error;
     }
+  }
 
-    const workPath = this.workspace.allocate(delegationId);
+  private async handleInvite(invite: InviteMessage): Promise<AcceptMessage> {
+    const { delegationId } = invite;
 
-    const validation = this.workspace.validate(workPath);
-    if (!validation.valid) {
-      await this.workspace.release(workPath);
-      return this.createErrorMessage(
+    await this.admissionController.check({invite, assignments: this.assignments, transport: this.transport});
+    await this.config.hooks.onAdmissionCheck?.(invite);
+
+    const workPath = this.workspaceManager.allocate(delegationId);
+
+    try {
+      const validation = this.workspaceManager.validate(workPath);
+      if (!validation.valid) {
+        throw new AwcpError(
+          ErrorCodes.WORKDIR_DENIED,
+          validation.reason ?? 'Workspace validation failed',
+          'Check workDir configuration',
+          delegationId,
+        );
+      }
+
+      const assignment = createAssignment({ id: delegationId, invite, workPath });
+      this.assignments.set(delegationId, assignment);
+      this.stateMachines.set(delegationId, new AssignmentStateMachine());
+      this.eventEmitters.set(delegationId, new EventEmitter());
+      await this.persistAssignment(delegationId);
+
+      const executorConstraints: ExecutorConstraints = {
+        acceptedAccessMode: invite.lease.accessMode,
+        maxTtlSeconds: Math.min(invite.lease.ttlSeconds, this.config.admission.maxTtlSeconds),
+        sandboxProfile: this.config.assignment.sandbox,
+      };
+
+      return {
+        version: PROTOCOL_VERSION,
+        type: 'ACCEPT',
         delegationId,
-        ErrorCodes.WORKDIR_DENIED,
-        validation.reason ?? 'Workspace validation failed',
-        'Check workDir configuration'
-      );
+        executorWorkDir: { path: workPath },
+        executorConstraints,
+      };
+    } catch (error) {
+      this.assignments.delete(delegationId);
+      this.stateMachines.delete(delegationId);
+      this.eventEmitters.delete(delegationId);
+      await this.workspaceManager.release(workPath);
+      await this.assignmentManager.delete(delegationId).catch(() => {});
+      throw error;
     }
-
-    this.pendingInvitations.set(delegationId, {
-      invite,
-      eventEmitter: new EventEmitter(),
-      receivedAt: new Date(),
-    });
-
-    const executorConstraints: ExecutorConstraints = {
-      acceptedAccessMode: invite.lease.accessMode,
-      maxTtlSeconds: Math.min(invite.lease.ttlSeconds, maxTtl),
-      sandboxProfile: this.config.sandbox,
-    };
-
-    const acceptMessage: AcceptMessage = {
-      version: PROTOCOL_VERSION,
-      type: 'ACCEPT',
-      delegationId,
-      executorWorkDir: { path: workPath },
-      executorConstraints,
-    };
-
-    return acceptMessage;
   }
 
   private async handleStart(start: StartMessage): Promise<void> {
     const { delegationId } = start;
 
-    const pending = this.pendingInvitations.get(delegationId);
-    if (!pending) {
+    const assignment = this.assignments.get(delegationId);
+    if (!assignment) {
       throw new Error(
         `Unknown delegation for START: ${delegationId}` +
-        ` (pending=[${Array.from(this.pendingInvitations.keys()).join(',')}])`
+        ` (known=[${Array.from(this.assignments.keys()).join(',')}])`
       );
     }
 
-    const workPath = this.workspace.allocate(delegationId);
-    const eventEmitter = pending.eventEmitter;
-    this.pendingInvitations.delete(delegationId);
+    const result = this.transitionState(delegationId, { type: 'RECEIVE_START' });
+    if (!result.success) {
+      throw new Error(
+        `Cannot START delegation ${delegationId} in state '${assignment.state}': ${result.error}`
+      );
+    }
 
-    this.activeDelegations.set(delegationId, {
-      id: delegationId,
-      workPath,
-      task: pending.invite.task,
-      lease: start.lease,
-      environment: pending.invite.environment,
-      startedAt: new Date(),
-      eventEmitter,
-    });
+    assignment.lease = start.lease;
+    assignment.startedAt = new Date().toISOString();
+    await this.persistAssignment(delegationId);
 
     console.log(
-      `[AWCP:Executor] Delegation ${delegationId} registered` +
-      ` (active=${this.activeDelegations.size}, workPath=${workPath})`
+      `[AWCP:Executor] Delegation ${delegationId} started` +
+      ` (active=${Array.from(this.assignments.values()).filter(a => a.state === 'active').length}, workPath=${assignment.workPath})`
     );
 
-    // Task execution runs async - don't await
-    this.executeTask(delegationId, start, workPath, pending.invite.task, start.lease, pending.invite.environment, eventEmitter);
+    this.executeTask(delegationId, start);
   }
 
-  private async executeTask(
-    delegationId: string,
-    start: StartMessage,
-    workPath: string,
-    task: TaskSpec,
-    lease: ActiveLease,
-    environment: EnvironmentDeclaration,
-    eventEmitter: EventEmitter,
-  ): Promise<void> {
+  private async handleError(error: ErrorMessage): Promise<void> {
+    const { delegationId } = error;
+
+    const assignment = this.assignments.get(delegationId);
+    if (!assignment) {
+      throw new Error(
+        `Unknown delegation for ERROR: ${delegationId}` +
+        ` (known=[${Array.from(this.assignments.keys()).join(',')}])`
+      );
+    }
+
+    const result = this.transitionState(delegationId, { type: 'RECEIVE_ERROR' });
+    if (!result.success) {
+      throw new Error(
+        `Cannot process ERROR for delegation ${delegationId} in state '${assignment.state}': ${result.error}`
+      );
+    }
+
+    console.log(`[AWCP:Executor] Received ERROR for ${delegationId}: ${error.code} - ${error.message}`);
+
+    assignment.completedAt = new Date().toISOString();
+    assignment.error = { code: error.code, message: error.message, hint: error.hint };
+    await this.persistAssignment(delegationId);
+
+    await this.release(delegationId);
+
+    this.config.hooks.onError?.(
+      delegationId,
+      new AwcpError(error.code, error.message, error.hint, delegationId)
+    );
+  }
+
+  subscribeTask(delegationId: string, callback: (event: TaskEvent) => void): () => void {
+    const assignment = this.assignments.get(delegationId);
+    if (!assignment) {
+      console.error(`[AWCP:Executor] SSE subscribe rejected for ${delegationId}: unknown delegation`);
+      const errorEvent: TaskErrorEvent = {
+        delegationId, type: 'error', timestamp: new Date().toISOString(),
+        code: 'NOT_FOUND', message: 'Delegation not found on executor',
+      };
+      callback(errorEvent);
+      return () => {};
+    }
+
+    const sm = this.stateMachines.get(delegationId)!;
+    if (sm.isTerminal()) {
+      console.log(`[AWCP:Executor] SSE reconnect for ${delegationId}, replaying ${assignment.state} event`);
+      const event: TaskEvent = assignment.state === 'completed'
+        ? {
+            delegationId, type: 'done', timestamp: assignment.completedAt!,
+            summary: assignment.result?.summary ?? 'Task completed',
+            highlights: assignment.result?.highlights,
+          }
+        : {
+            delegationId, type: 'error', timestamp: assignment.completedAt!,
+            code: assignment.error?.code ?? ErrorCodes.TASK_FAILED,
+            message: assignment.error?.message ?? 'Task failed',
+            hint: assignment.error?.hint,
+          };
+      setImmediate(() => callback(event));
+      return () => {};
+    }
+
+    const emitter = this.eventEmitters.get(delegationId);
+    if (!emitter) {
+      console.error(`[AWCP:Executor] SSE subscribe failed for ${delegationId}: no event emitter`);
+      return () => {};
+    }
+
+    console.log(`[AWCP:Executor] SSE subscriber attached for ${delegationId} (state=${assignment.state})`);
+    const handler = (event: TaskEvent) => callback(event);
+    emitter.on('event', handler);
+    return () => {
+      console.log(`[AWCP:Executor] SSE subscriber detached for ${delegationId}`);
+      emitter.off('event', handler);
+    };
+  }
+
+  private async executeTask(delegationId: string, start: StartMessage): Promise<void> {
+    const assignment = this.assignments.get(delegationId)!;
+    const emitter = this.eventEmitters.get(delegationId)!;
+
     try {
-      console.log(`[AWCP:Executor] Task ${delegationId} preparing workspace...`);
-      await this.workspace.prepare(workPath);
+      console.log(`[AWCP:Executor] Task ${delegationId} preparing workspaceManager...`);
+      await this.workspaceManager.prepare(assignment.workPath);
 
       console.log(`[AWCP:Executor] Task ${delegationId} setting up transport (${this.transport.type})...`);
       const actualPath = await this.transport.setup({
         delegationId,
         workDirInfo: start.workDir,
-        workDir: workPath,
+        workDir: assignment.workPath,
       });
 
-      this.config.hooks.onTaskStart?.({ delegationId, workPath: actualPath, task, lease, environment });
+      this.config.hooks.onTaskStart?.({
+        delegationId,
+        workPath: actualPath,
+        task: assignment.invite.task,
+        lease: assignment.lease!,
+        environment: assignment.invite.environment,
+      });
 
-      console.log(`[AWCP:Executor] Task ${delegationId} executing (listeners=${eventEmitter.listenerCount('event')})...`);
+      console.log(`[AWCP:Executor] Task ${delegationId} executing (listeners=${emitter.listenerCount('event')})...`);
       const statusEvent: TaskStatusEvent = {
         delegationId,
         type: 'status',
@@ -341,13 +316,13 @@ export class ExecutorService implements ExecutorRequestHandler {
         status: 'running',
         message: 'Task execution started',
       };
-      eventEmitter.emit('event', statusEvent);
+      emitter.emit('event', statusEvent);
 
       const result = await this.executor.execute({
         delegationId,
         workPath: actualPath,
-        task,
-        environment,
+        task: assignment.invite.task,
+        environment: assignment.invite.environment,
       });
 
       console.log(`[AWCP:Executor] Task ${delegationId} completed, capturing snapshot...`);
@@ -366,7 +341,7 @@ export class ExecutorService implements ExecutorRequestHandler {
           snapshotBase64: snapshotResult.snapshotBase64,
           recommended: true,
         };
-        eventEmitter.emit('event', snapshotEvent);
+        emitter.emit('event', snapshotEvent);
       }
 
       const doneEvent: TaskDoneEvent = {
@@ -379,25 +354,21 @@ export class ExecutorService implements ExecutorRequestHandler {
         recommendedSnapshotId: snapshotResult?.snapshotBase64 ? snapshotId : undefined,
       };
 
-      eventEmitter.emit('event', doneEvent);
+      emitter.emit('event', doneEvent);
       console.log(
         `[AWCP:Executor] Task ${delegationId} done event emitted` +
-        ` (listeners=${eventEmitter.listenerCount('event')})`
+        ` (listeners=${emitter.listenerCount('event')})`
       );
       this.config.hooks.onTaskComplete?.(delegationId, result.summary);
 
-      this.completedDelegations.set(delegationId, {
-        id: delegationId,
-        completedAt: new Date(),
-        state: 'completed',
-        snapshot: snapshotResult?.snapshotBase64 ? {
-          id: snapshotId,
-          summary: result.summary,
-          highlights: result.highlights,
-          snapshotBase64: snapshotResult.snapshotBase64,
-        } : undefined,
-      });
-      this.scheduleResultCleanup(delegationId);
+      this.transitionState(delegationId, { type: 'TASK_COMPLETE' });
+      assignment.completedAt = new Date().toISOString();
+      assignment.result = {
+        summary: result.summary,
+        highlights: result.highlights,
+        snapshotBase64: snapshotResult?.snapshotBase64,
+      };
+      await this.persistAssignment(delegationId);
 
       await this.release(delegationId);
     } catch (error) {
@@ -412,61 +383,46 @@ export class ExecutorService implements ExecutorRequestHandler {
         hint: 'Check task requirements and try again',
       };
 
-      eventEmitter.emit('event', errorEvent);
+      emitter.emit('event', errorEvent);
       console.log(
         `[AWCP:Executor] Task ${delegationId} error event emitted` +
-        ` (listeners=${eventEmitter.listenerCount('event')})`
+        ` (listeners=${emitter.listenerCount('event')})`
       );
       this.config.hooks.onError?.(
         delegationId,
         error instanceof Error ? error : new Error(String(error))
       );
 
-      this.completedDelegations.set(delegationId, {
-        id: delegationId,
-        completedAt: new Date(),
-        state: 'error',
-        error: {
-          code: ErrorCodes.TASK_FAILED,
-          message: error instanceof Error ? error.message : String(error),
-          hint: 'Check task requirements and try again',
-        },
-      });
-      this.scheduleResultCleanup(delegationId);
+      this.transitionState(delegationId, { type: 'TASK_FAIL' });
+      assignment.completedAt = new Date().toISOString();
+      assignment.error = {
+        code: ErrorCodes.TASK_FAILED,
+        message: error instanceof Error ? error.message : String(error),
+        hint: 'Check task requirements and try again',
+      };
+      await this.persistAssignment(delegationId);
 
       await this.release(delegationId);
     }
   }
 
-  private async handleError(error: ErrorMessage): Promise<void> {
-    const { delegationId } = error;
+  async cancelDelegation(delegationId: string): Promise<void> {
+    const assignment = this.assignments.get(delegationId);
+    if (!assignment) {
+      throw new Error(`Delegation not found: ${delegationId}`);
+    }
 
-    const hasPending = this.pendingInvitations.has(delegationId);
-    const hasActive = this.activeDelegations.has(delegationId);
-    if (!hasPending && !hasActive) {
+    const result = this.transitionState(delegationId, { type: 'CANCEL' });
+    if (!result.success) {
       throw new Error(
-        `Unknown delegation for ERROR: ${delegationId}` +
-        ` (pending=[${Array.from(this.pendingInvitations.keys()).join(',')}]` +
-        `, active=[${Array.from(this.activeDelegations.keys()).join(',')}])`
+        `Cannot cancel delegation ${delegationId} in state '${assignment.state}': ${result.error}`
       );
     }
 
-    console.log(`[AWCP:Executor] Received ERROR for ${delegationId}: ${error.code} - ${error.message}`);
+    console.log(`[AWCP:Executor] Cancelling delegation ${delegationId}`);
 
-    this.pendingInvitations.delete(delegationId);
-    await this.release(delegationId);
-
-    this.config.hooks.onError?.(
-      delegationId,
-      new AwcpError(error.code, error.message, error.hint, delegationId)
-    );
-  }
-
-  async cancelDelegation(delegationId: string): Promise<void> {
-    const delegation = this.activeDelegations.get(delegationId);
-    if (delegation) {
-      console.log(`[AWCP:Executor] Cancelling active delegation ${delegationId}`);
-
+    const emitter = this.eventEmitters.get(delegationId);
+    if (emitter) {
       const errorEvent: TaskErrorEvent = {
         delegationId,
         type: 'error',
@@ -474,88 +430,124 @@ export class ExecutorService implements ExecutorRequestHandler {
         code: ErrorCodes.CANCELLED,
         message: 'Delegation cancelled',
       };
-      delegation.eventEmitter.emit('event', errorEvent);
-
-      await this.release(delegationId);
-      this.config.hooks.onError?.(
-        delegationId,
-        new CancelledError('Delegation cancelled by Delegator', undefined, delegationId)
-      );
-      return;
+      emitter.emit('event', errorEvent);
     }
 
-    if (this.pendingInvitations.has(delegationId)) {
-      this.pendingInvitations.delete(delegationId);
-      return;
-    }
+    assignment.completedAt = new Date().toISOString();
+    assignment.error = { code: ErrorCodes.CANCELLED, message: 'Delegation cancelled' };
+    await this.persistAssignment(delegationId);
 
-    throw new Error(`Delegation not found: ${delegationId}`);
+    await this.release(delegationId);
+
+    this.config.hooks.onError?.(
+      delegationId,
+      new CancelledError('Delegation cancelled by Delegator', undefined, delegationId)
+    );
   }
 
   getStatus(): ExecutorServiceStatus {
+    const active = Array.from(this.assignments.values()).filter(a => a.state === 'active');
     return {
-      pendingInvitations: this.pendingInvitations.size,
-      activeDelegations: this.activeDelegations.size,
-      completedDelegations: this.completedDelegations.size,
-      delegations: Array.from(this.activeDelegations.values()).map((d) => ({
-        id: d.id,
-        workPath: d.workPath,
-        startedAt: d.startedAt.toISOString(),
+      pendingInvitations: Array.from(this.assignments.values()).filter(a => a.state === 'pending').length,
+      activeDelegations: active.length,
+      completedDelegations: Array.from(this.assignments.values()).filter(a => a.state === 'completed' || a.state === 'error').length,
+      delegations: active.map((a) => ({
+        id: a.id,
+        workPath: a.workPath,
+        startedAt: a.startedAt!,
       })),
     };
   }
 
   getTaskResult(delegationId: string): TaskResultResponse {
-    const active = this.activeDelegations.get(delegationId);
-    if (active) {
+    const assignment = this.assignments.get(delegationId);
+
+    if (!assignment) {
+      if (this.transport.type === 'sshfs') {
+        return { status: 'not_applicable', reason: 'SSHFS transport writes directly to source' };
+      }
+      return { status: 'not_found' };
+    }
+
+    const sm = this.stateMachines.get(delegationId)!;
+    if (!sm.isTerminal()) {
       return { status: 'running' };
     }
 
-    const completed = this.completedDelegations.get(delegationId);
-    if (completed) {
-      if (completed.state === 'completed') {
-        return {
-          status: 'completed',
-          completedAt: completed.completedAt.toISOString(),
-          summary: completed.snapshot?.summary,
-          highlights: completed.snapshot?.highlights,
-          snapshotBase64: completed.snapshot?.snapshotBase64,
-        };
-      }
+    if (assignment.state === 'completed') {
       return {
-        status: 'error',
-        completedAt: completed.completedAt.toISOString(),
-        error: completed.error,
+        status: 'completed',
+        completedAt: assignment.completedAt,
+        summary: assignment.result?.summary,
+        highlights: assignment.result?.highlights,
+        snapshotBase64: assignment.result?.snapshotBase64,
       };
     }
 
-    if (this.transport.type === 'sshfs') {
-      return {
-        status: 'not_applicable',
-        reason: 'SSHFS transport writes directly to source',
-      };
-    }
-
-    return { status: 'not_found' };
+    return {
+      status: 'error',
+      completedAt: assignment.completedAt,
+      error: assignment.error,
+    };
   }
 
   acknowledgeResult(delegationId: string): void {
-    this.completedDelegations.delete(delegationId);
+    const assignment = this.assignments.get(delegationId);
+    const sm = this.stateMachines.get(delegationId);
+    if (assignment && sm?.isTerminal()) {
+      this.assignments.delete(delegationId);
+      this.stateMachines.delete(delegationId);
+      this.eventEmitters.delete(delegationId);
+      this.assignmentManager.delete(delegationId).catch(() => {});
+    }
+  }
+
+  private transitionState(
+    delegationId: string,
+    event: AssignmentEvent,
+  ): ReturnType<AssignmentStateMachine['transition']> {
+    const sm = this.stateMachines.get(delegationId)!;
+    const assignment = this.assignments.get(delegationId)!;
+    const result = sm.transition(event);
+    if (result.success) {
+      assignment.state = sm.getState();
+      assignment.updatedAt = new Date().toISOString();
+    }
+    return result;
   }
 
   private async release(delegationId: string): Promise<void> {
-    const delegation = this.activeDelegations.get(delegationId);
-    if (!delegation) return;
+    const assignment = this.assignments.get(delegationId);
+    if (!assignment) return;
 
-    await this.transport.release({ delegationId, workDir: delegation.workPath }).catch(() => {});
-    await this.workspace.release(delegation.workPath);
-    this.activeDelegations.delete(delegationId);
+    await this.transport.release({ delegationId, workDir: assignment.workPath }).catch(() => {});
+    await this.workspaceManager.release(assignment.workPath);
+    this.eventEmitters.delete(delegationId);
   }
 
-  private scheduleResultCleanup(delegationId: string): void {
-    setTimeout(() => {
-      this.completedDelegations.delete(delegationId);
-    }, this.config.defaults.resultRetentionMs);
+  private async persistAssignment(delegationId: string): Promise<void> {
+    const assignment = this.assignments.get(delegationId);
+    if (assignment) {
+      await this.assignmentManager.save(assignment);
+    }
+  }
+
+  private startCleanupTimer(): void {
+    this.cleanupTimer = setInterval(async () => {
+      const now = Date.now();
+      for (const [id, assignment] of this.assignments) {
+        const sm = this.stateMachines.get(id);
+        if (!sm?.isTerminal()) continue;
+
+        const completedAt = new Date(assignment.completedAt!).getTime();
+        if (now - completedAt > this.config.assignment.resultRetentionMs) {
+          this.assignments.delete(id);
+          this.stateMachines.delete(id);
+          this.eventEmitters.delete(id);
+          await this.assignmentManager.delete(id).catch(() => {});
+        }
+      }
+    }, 60 * 1000);
   }
 
   private createErrorMessage(

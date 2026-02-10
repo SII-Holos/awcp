@@ -49,14 +49,8 @@ export class WorkspaceManager {
     }
   }
 
-  async cleanupStale(): Promise<number> {
-    // Build set of delegation IDs (directory names) that are active
-    const activeIds = new Set<string>();
-    for (const path of this.allocated) {
-      const name = path.substring(this.workDir.length + 1);
-      activeIds.add(name);
-    }
-    return cleanupStaleDirectories(this.workDir, activeIds);
+  async cleanupStale(knownIds: Set<string>): Promise<number> {
+    return cleanupStaleDirectories(this.workDir, knownIds);
   }
 
   isAllocated(path: string): boolean {

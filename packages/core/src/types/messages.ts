@@ -272,3 +272,29 @@ export interface Delegation {
   createdAt: string;
   updatedAt: string;
 }
+
+// --- Assignment Record ---
+
+export type AssignmentState = 'pending' | 'active' | 'completed' | 'error';
+
+export interface Assignment {
+  id: string;
+  state: AssignmentState;
+  invite: InviteMessage;
+  workPath: string;
+  lease?: ActiveLease;
+  startedAt?: string;
+  completedAt?: string;
+  result?: {
+    summary: string;
+    highlights?: string[];
+    snapshotBase64?: string;
+  };
+  error?: {
+    code: string;
+    message: string;
+    hint?: string;
+  };
+  createdAt: string;
+  updatedAt: string;
+}

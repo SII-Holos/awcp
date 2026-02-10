@@ -10,7 +10,7 @@ export * from './types/index.js';
 // Utils
 export * from './utils/index.js';
 
-// State Machine
+// State Machine - Delegation
 export {
   DelegationStateMachine,
   isTerminalState,
@@ -18,6 +18,16 @@ export {
   createDelegation,
   type DelegationEvent,
   type TransitionResult,
+} from './state-machine/index.js';
+
+// State Machine - Assignment
+export {
+  AssignmentStateMachine,
+  isTerminalAssignmentState,
+  isValidAssignmentTransition,
+  createAssignment,
+  type AssignmentEvent,
+  type AssignmentTransitionResult,
 } from './state-machine/index.js';
 
 // Errors
