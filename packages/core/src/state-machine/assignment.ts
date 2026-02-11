@@ -107,6 +107,7 @@ export function createAssignment(params: {
   id: string;
   invite: Assignment['invite'];
   workPath: string;
+  retentionMs: number;
 }): Assignment {
   const now = new Date().toISOString();
   return {
@@ -114,6 +115,7 @@ export function createAssignment(params: {
     state: 'pending',
     invite: params.invite,
     workPath: params.workPath,
+    retentionMs: params.retentionMs,
     createdAt: now,
     updatedAt: now,
   };

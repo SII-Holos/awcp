@@ -2,7 +2,7 @@
  * Workspace Manager - manages workspace directories on Executor side
  */
 
-import { mkdir, readdir, rm } from 'node:fs/promises';
+import { mkdir, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { cleanupStaleDirectories } from '../utils/index.js';
 
@@ -22,10 +22,6 @@ export class WorkspaceManager {
 
   async prepare(path: string): Promise<void> {
     await mkdir(path, { recursive: true });
-    const entries = await readdir(path);
-    if (entries.length > 0) {
-      throw new Error(`Workspace ${path} is not empty`);
-    }
   }
 
   async release(path: string): Promise<void> {

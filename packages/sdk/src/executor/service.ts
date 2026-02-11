@@ -18,12 +18,9 @@ import {
   type TaskSnapshotEvent,
   type TaskDoneEvent,
   type TaskErrorEvent,
-  type ExecutorRequestHandler,
-  type ExecutorServiceStatus,
-  type TaskExecutor,
-  type TaskResultResponse,
   type AssignmentEvent,
   AssignmentStateMachine,
+  isTerminalAssignmentState,
   generateSnapshotId,
   createAssignment,
   PROTOCOL_VERSION,
@@ -32,6 +29,8 @@ import {
   CancelledError,
 } from '@awcp/core';
 import { type ExecutorConfig, type ResolvedExecutorConfig, resolveExecutorConfig } from './config.js';
+import type { TaskExecutor } from './config.js';
+import type { ExecutorRequestHandler, ExecutorServiceStatus, TaskResultResponse } from '../listener/types.js';
 import { AdmissionController } from './admission.js';
 import { AssignmentManager } from './assignment-manager.js';
 import { WorkspaceManager } from './workspace-manager.js';
@@ -70,13 +69,24 @@ export class ExecutorService implements ExecutorRequestHandler {
   async initialize(): Promise<void> {
     await this.transport.initialize?.(this.config.workDir);
 
+    if (this.config.cleanupOnInitialize) {
+      const persistedAssignments = await this.assignmentManager.loadAll();
+      for (const assignment of persistedAssignments) {
+        await this.transport.release({ delegationId: assignment.id, localPath: assignment.workPath }).catch(() => {});
+        await this.workspaceManager.release(assignment.workPath);
+        await this.assignmentManager.delete(assignment.id).catch(() => {});
+      }
+      this.startCleanupTimer();
+      return;
+    }
+
     const persistedAssignments = await this.assignmentManager.loadAll();
     const knownIds = new Set(persistedAssignments.map(a => a.id));
 
     for (const assignment of persistedAssignments) {
       this.assignments.set(assignment.id, assignment);
       this.stateMachines.set(assignment.id, new AssignmentStateMachine(assignment.state));
-      if (assignment.state === 'pending' || assignment.state === 'active') {
+      if (!isTerminalAssignmentState(assignment.state)) {
         this.eventEmitters.set(assignment.id, new EventEmitter());
       }
     }
@@ -92,10 +102,6 @@ export class ExecutorService implements ExecutorRequestHandler {
     }
 
     await this.transport.shutdown?.();
-
-    for (const id of this.assignments.keys()) {
-      await this.release(id).catch(() => {});
-    }
 
     this.assignments.clear();
     this.stateMachines.clear();
@@ -132,13 +138,51 @@ export class ExecutorService implements ExecutorRequestHandler {
   private async handleInvite(invite: InviteMessage): Promise<AcceptMessage> {
     const { delegationId } = invite;
 
+    const existing = this.assignments.get(delegationId);
+    if (existing) {
+      await this.transport.release({ delegationId, localPath: existing.workPath }).catch(() => {});
+      this.eventEmitters.delete(delegationId);
+
+      const retentionMs = Math.min(invite.retentionMs, this.config.assignment.maxRetentionMs);
+
+      existing.state = 'pending';
+      existing.invite = invite;
+      existing.retentionMs = retentionMs;
+      existing.lease = undefined;
+      existing.startedAt = undefined;
+      existing.completedAt = undefined;
+      existing.result = undefined;
+      existing.error = undefined;
+      existing.updatedAt = new Date().toISOString();
+
+      this.stateMachines.set(delegationId, new AssignmentStateMachine());
+      this.eventEmitters.set(delegationId, new EventEmitter());
+      await this.persistAssignment(delegationId);
+
+      console.log(`[AWCP:Executor] Re-accepting delegation ${delegationId} (was ${existing.state})`);
+
+      return {
+        version: PROTOCOL_VERSION,
+        type: 'ACCEPT',
+        delegationId,
+        retentionMs,
+        executorWorkDir: { path: existing.workPath },
+        executorConstraints: {
+          acceptedAccessMode: invite.lease.accessMode,
+          maxTtlSeconds: Math.min(invite.lease.ttlSeconds, this.config.admission.maxTtlSeconds),
+          sandboxProfile: this.config.assignment.sandbox,
+        },
+      };
+    }
+
     await this.admissionController.check({invite, assignments: this.assignments, transport: this.transport});
     await this.config.hooks.onAdmissionCheck?.(invite);
 
+    const retentionMs = Math.min(invite.retentionMs, this.config.assignment.maxRetentionMs);
     const workPath = this.workspaceManager.allocate(delegationId);
 
     try {
-      const assignment = createAssignment({ id: delegationId, invite, workPath });
+      const assignment = createAssignment({ id: delegationId, invite, workPath, retentionMs });
       this.assignments.set(delegationId, assignment);
       this.stateMachines.set(delegationId, new AssignmentStateMachine());
       this.eventEmitters.set(delegationId, new EventEmitter());
@@ -154,6 +198,7 @@ export class ExecutorService implements ExecutorRequestHandler {
         version: PROTOCOL_VERSION,
         type: 'ACCEPT',
         delegationId,
+        retentionMs,
         executorWorkDir: { path: workPath },
         executorConstraints,
       };
@@ -210,8 +255,6 @@ export class ExecutorService implements ExecutorRequestHandler {
     assignment.completedAt = new Date().toISOString();
     assignment.error = { code: error.code, message: error.message, hint: error.hint };
     await this.persistAssignment(delegationId);
-
-    await this.release(delegationId);
 
     this.config.hooks.onError?.(
       delegationId,
@@ -270,13 +313,13 @@ export class ExecutorService implements ExecutorRequestHandler {
     const emitter = this.eventEmitters.get(delegationId)!;
 
     try {
-      console.log(`[AWCP:Executor] Task ${delegationId} preparing workspaceManager...`);
+      console.log(`[AWCP:Executor] Task ${delegationId} preparing workspace...`);
       await this.workspaceManager.prepare(assignment.workPath);
 
       console.log(`[AWCP:Executor] Task ${delegationId} setting up transport (${this.transport.type})...`);
       const actualPath = await this.transport.setup({
         delegationId,
-        handle: start.transport,
+        handle: start.transportHandle,
         localPath: assignment.workPath,
       });
 
@@ -350,7 +393,7 @@ export class ExecutorService implements ExecutorRequestHandler {
       };
       await this.persistAssignment(delegationId);
 
-      await this.release(delegationId);
+      await this.transport.release({ delegationId, localPath: assignment.workPath }).catch(() => {});
     } catch (error) {
       console.error(`[AWCP:Executor] Task ${delegationId} failed:`, error instanceof Error ? error.message : error);
 
@@ -381,8 +424,6 @@ export class ExecutorService implements ExecutorRequestHandler {
         hint: 'Check task requirements and try again',
       };
       await this.persistAssignment(delegationId);
-
-      await this.release(delegationId);
     }
   }
 
@@ -412,7 +453,7 @@ export class ExecutorService implements ExecutorRequestHandler {
     assignment.error = { code: ErrorCodes.CANCELLED, message: 'Delegation cancelled' };
     await this.persistAssignment(delegationId);
 
-    await this.release(delegationId);
+    await this.transport.release({ delegationId, localPath: assignment.workPath }).catch(() => {});
 
     this.config.hooks.onError?.(
       delegationId,
@@ -493,15 +534,6 @@ export class ExecutorService implements ExecutorRequestHandler {
     assignment.updatedAt = new Date().toISOString();
   }
 
-  private async release(delegationId: string): Promise<void> {
-    const assignment = this.assignments.get(delegationId);
-    if (!assignment) return;
-
-    await this.transport.release({ delegationId, localPath: assignment.workPath }).catch(() => {});
-    await this.workspaceManager.release(assignment.workPath);
-    this.eventEmitters.delete(delegationId);
-  }
-
   private async persistAssignment(delegationId: string): Promise<void> {
     const assignment = this.assignments.get(delegationId);
     if (assignment) {
@@ -516,12 +548,14 @@ export class ExecutorService implements ExecutorRequestHandler {
         const sm = this.stateMachines.get(id);
         if (!sm?.isTerminal()) continue;
 
-        const completedAt = new Date(assignment.completedAt!).getTime();
-        if (now - completedAt > this.config.assignment.resultRetentionMs) {
+        const updatedAt = new Date(assignment.updatedAt).getTime();
+        if (now - updatedAt > assignment.retentionMs) {
+          await this.transport.release({ delegationId: id, localPath: assignment.workPath }).catch(() => {});
+          await this.workspaceManager.release(assignment.workPath);
+          await this.assignmentManager.delete(id).catch(() => {});
           this.assignments.delete(id);
           this.stateMachines.delete(id);
           this.eventEmitters.delete(id);
-          await this.assignmentManager.delete(id).catch(() => {});
         }
       }
     }, 60 * 1000);

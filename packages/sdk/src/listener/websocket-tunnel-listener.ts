@@ -4,13 +4,13 @@
 
 import type { RawData } from 'ws';
 import WebSocket from 'ws';
+import type { TaskEvent } from '@awcp/core';
 import type {
   ExecutorRequestHandler,
   ListenerAdapter,
   ListenerInfo,
   ListenerCallbacks,
-  TaskEvent,
-} from '@awcp/core';
+} from './types.js';
 
 export interface WebSocketTunnelConfig {
   server: string;

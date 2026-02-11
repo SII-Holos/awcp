@@ -10,20 +10,43 @@ import type {
   ActiveLease,
   TaskSpec,
   EnvironmentDeclaration,
-  ListenerAdapter,
-  ListenerInfo,
 } from '@awcp/core';
+import type { ListenerAdapter, ListenerInfo } from '../listener/types.js';
 
-export interface AdmissionConfig {
+// ========== Admission ==========
+
+export interface ExecutorAdmissionConfig {
   maxConcurrentDelegations?: number;
   maxTtlSeconds?: number;
   allowedAccessModes?: AccessMode[];
 }
 
+// ========== Assignment ==========
+
 export interface AssignmentConfig {
+  maxRetentionMs?: number;
   sandbox?: SandboxProfile;
-  resultRetentionMs?: number;
 }
+
+// ========== Task Executor ==========
+
+export interface TaskExecutionContext {
+  delegationId: string;
+  workPath: string;
+  task: TaskSpec;
+  environment: EnvironmentDeclaration;
+}
+
+export interface TaskExecutionResult {
+  summary: string;
+  highlights?: string[];
+}
+
+export interface TaskExecutor {
+  execute(context: TaskExecutionContext): Promise<TaskExecutionResult>;
+}
+
+// ========== Hooks ==========
 
 export interface TaskStartContext {
   delegationId: string;
@@ -42,14 +65,19 @@ export interface ExecutorHooks {
   onListenerDisconnected?: (type: string, error?: Error) => void;
 }
 
+// ========== Config ==========
+
 export interface ExecutorConfig {
   workDir: string;
   transport: ExecutorTransportAdapter;
-  admission?: AdmissionConfig;
+  admission?: ExecutorAdmissionConfig;
   assignment?: AssignmentConfig;
+  cleanupOnInitialize?: boolean;
   hooks?: ExecutorHooks;
   listeners?: ListenerAdapter[];
 }
+
+// ========== Defaults ==========
 
 export const DEFAULT_ADMISSION = {
   maxConcurrentDelegations: 5,
@@ -58,22 +86,25 @@ export const DEFAULT_ADMISSION = {
 } as const;
 
 export const DEFAULT_ASSIGNMENT = {
+  maxRetentionMs: 7 * 24 * 60 * 60 * 1000,   // 7 days
   sandbox: {
     cwdOnly: true,
     allowNetwork: true,
     allowExec: true,
   },
-  resultRetentionMs: 30 * 60 * 1000,       // 30 minutes
 } as const;
+
+// ========== Resolved ==========
 
 export interface ResolvedExecutorConfig {
   workDir: string;
   transport: ExecutorTransportAdapter;
-  admission: Required<AdmissionConfig>;
+  admission: Required<ExecutorAdmissionConfig>;
   assignment: {
+    maxRetentionMs: number;
     sandbox: Required<SandboxProfile>;
-    resultRetentionMs: number;
   };
+  cleanupOnInitialize: boolean;
   hooks: ExecutorHooks;
   listeners: ListenerAdapter[];
 }
@@ -88,13 +119,14 @@ export function resolveExecutorConfig(config: ExecutorConfig): ResolvedExecutorC
       allowedAccessModes: config.admission?.allowedAccessModes ?? [...DEFAULT_ADMISSION.allowedAccessModes],
     },
     assignment: {
+      maxRetentionMs: config.assignment?.maxRetentionMs ?? DEFAULT_ASSIGNMENT.maxRetentionMs,
       sandbox: {
         cwdOnly: config.assignment?.sandbox?.cwdOnly ?? DEFAULT_ASSIGNMENT.sandbox.cwdOnly,
         allowNetwork: config.assignment?.sandbox?.allowNetwork ?? DEFAULT_ASSIGNMENT.sandbox.allowNetwork,
         allowExec: config.assignment?.sandbox?.allowExec ?? DEFAULT_ASSIGNMENT.sandbox.allowExec,
       },
-      resultRetentionMs: config.assignment?.resultRetentionMs ?? DEFAULT_ASSIGNMENT.resultRetentionMs,
     },
+    cleanupOnInitialize: config.cleanupOnInitialize ?? true,
     hooks: config.hooks ?? {},
     listeners: config.listeners ?? [],
   };

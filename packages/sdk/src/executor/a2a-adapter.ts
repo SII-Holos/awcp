@@ -11,7 +11,7 @@ import {
   type AgentExecutor,
   type AgentExecutionEvent,
 } from '@a2a-js/sdk/server';
-import type { TaskExecutor, TaskExecutionContext, TaskExecutionResult } from '@awcp/core';
+import type { TaskExecutor, TaskExecutionContext, TaskExecutionResult } from './config.js';
 
 export class A2ATaskExecutor implements TaskExecutor {
   private executor: AgentExecutor;

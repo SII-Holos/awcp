@@ -1,9 +1,10 @@
 // High-level API
-export { DelegatorService, type DelegatorServiceOptions } from './service.js';
+export { DelegatorService, type DelegatorServiceOptions, type DelegatorRequestHandler, type DelegatorServiceStatus, type DelegatorDelegationInfo } from './service.js';
 export {
   type DelegatorConfig,
-  type AdmissionConfig,
+  type DelegatorAdmissionConfig,
   type DelegationConfig,
+  type DelegateParams,
   type DelegatorHooks,
   type ResolvedDelegatorConfig,
   DEFAULT_ADMISSION,

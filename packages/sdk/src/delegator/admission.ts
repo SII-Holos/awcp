@@ -1,18 +1,7 @@
 import { stat, readdir } from 'node:fs/promises';
 import { join, relative } from 'node:path';
 import { WorkspaceTooLargeError, SensitiveFilesError } from '@awcp/core';
-import { DEFAULT_ADMISSION } from './config.js';
-
-/**
- * Admission control configuration
- */
-export interface AdmissionConfig {
-  maxTotalBytes?: number;
-  maxFileCount?: number;
-  maxSingleFileBytes?: number;
-  sensitivePatterns?: string[];
-  skipSensitiveCheck?: boolean;
-}
+import { DEFAULT_ADMISSION, type DelegatorAdmissionConfig } from './config.js';
 
 export interface WorkspaceStats {
   estimatedBytes?: number;
@@ -26,9 +15,9 @@ export interface WorkspaceStats {
  * Protects the system from oversized workspaces and sensitive file leaks.
  */
 export class AdmissionController {
-  private config: AdmissionConfig;
+  private config: DelegatorAdmissionConfig;
 
-  constructor(config?: AdmissionConfig) {
+  constructor(config?: DelegatorAdmissionConfig) {
     this.config = config ?? {};
   }
 

@@ -3,8 +3,8 @@
  */
 
 import { Router } from 'express';
-import type { ListenerAdapter, ListenerInfo, TaskExecutor } from '@awcp/core';
-import type { ExecutorConfig } from '../../executor/config.js';
+import type { ListenerAdapter, ListenerInfo } from '../../listener/types.js';
+import type { ExecutorConfig, TaskExecutor } from '../../executor/config.js';
 import { ExecutorService } from '../../executor/service.js';
 import { HttpListener } from '../../listener/http-listener.js';
 

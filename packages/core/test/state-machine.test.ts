@@ -104,6 +104,7 @@ describe('DelegationStateMachine', () => {
         task: { description: 'Test', prompt: 'Test prompt' },
         environment: { resources: [{ name: 'project', type: 'fs', mode: 'rw' }] },
         lease: { ttlSeconds: 3600, accessMode: 'rw' },
+        retentionMs: 7 * 24 * 60 * 60 * 1000,
       };
       expect(sm.transition({ type: 'SEND_INVITE', message: invite })).toMatchObject({
         success: true,
@@ -115,6 +116,7 @@ describe('DelegationStateMachine', () => {
         version: PROTOCOL_VERSION,
         type: 'ACCEPT',
         delegationId,
+        retentionMs: 7 * 24 * 60 * 60 * 1000,
         executorWorkDir: { path: '/mounts/test-123' },
       };
       expect(sm.transition({ type: 'RECEIVE_ACCEPT', message: accept })).toMatchObject({
@@ -128,7 +130,7 @@ describe('DelegationStateMachine', () => {
         type: 'START',
         delegationId,
         lease: { expiresAt: new Date().toISOString(), accessMode: 'rw' },
-        transport: {
+        transportHandle: {
           transport: 'sshfs',
           endpoint: { host: 'localhost', port: 22, user: 'test' },
           exportLocator: '/tmp/test',
@@ -249,6 +251,7 @@ describe('DelegationStateMachine', () => {
         version: PROTOCOL_VERSION,
         type: 'ACCEPT',
         delegationId: 'test',
+        retentionMs: 7 * 24 * 60 * 60 * 1000,
         executorWorkDir: { path: '/mounts/test' },
       };
       expect(sm.transition({ type: 'RECEIVE_ACCEPT', message: accept })).toMatchObject({
@@ -267,6 +270,7 @@ describe('createDelegation', () => {
       environment: { resources: [{ name: 'project', type: 'fs', source: '/path/to/project', mode: 'rw' }] },
       task: { description: 'Fix bug', prompt: 'Fix the bug in main.ts' },
       leaseConfig: { ttlSeconds: 3600, accessMode: 'rw' },
+      retentionMs: 7 * 24 * 60 * 60 * 1000,
     });
 
     expect(delegation.id).toBe('test-123');

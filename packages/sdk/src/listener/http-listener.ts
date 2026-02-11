@@ -3,13 +3,13 @@
  */
 
 import { Router, json } from 'express';
+import type { TaskEvent } from '@awcp/core';
 import type {
   ExecutorRequestHandler,
   ListenerAdapter,
   ListenerInfo,
   ListenerCallbacks,
-  TaskEvent,
-} from '@awcp/core';
+} from './types.js';
 
 export interface HttpListenerConfig {
   publicUrl?: string;

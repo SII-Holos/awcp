@@ -52,8 +52,17 @@ describe('resolveDelegatorConfig', () => {
     it('should apply default snapshot config', () => {
       const resolved = resolveDelegatorConfig(minimalConfig);
       expect(resolved.delegation.snapshot.mode).toBe('auto');
-      expect(resolved.delegation.snapshot.retentionMs).toBe(30 * 60 * 1000);
       expect(resolved.delegation.snapshot.maxSnapshots).toBe(10);
+    });
+
+    it('should apply default retention config', () => {
+      const resolved = resolveDelegatorConfig(minimalConfig);
+      expect(resolved.delegation.retentionMs).toBe(DEFAULT_DELEGATION.retentionMs);
+    });
+
+    it('should default cleanupOnInitialize to true', () => {
+      const resolved = resolveDelegatorConfig(minimalConfig);
+      expect(resolved.cleanupOnInitialize).toBe(true);
     });
 
     it('should preserve transport adapter', () => {
@@ -101,7 +110,6 @@ describe('resolveDelegatorConfig', () => {
         delegation: {
           snapshot: {
             mode: 'staged',
-            retentionMs: 60 * 60 * 1000,
             maxSnapshots: 5,
           },
         },
@@ -109,8 +117,29 @@ describe('resolveDelegatorConfig', () => {
 
       const resolved = resolveDelegatorConfig(config);
       expect(resolved.delegation.snapshot.mode).toBe('staged');
-      expect(resolved.delegation.snapshot.retentionMs).toBe(60 * 60 * 1000);
       expect(resolved.delegation.snapshot.maxSnapshots).toBe(5);
+    });
+
+    it('should preserve custom retention config', () => {
+      const config: DelegatorConfig = {
+        ...minimalConfig,
+        delegation: {
+          retentionMs: 30 * 24 * 60 * 60 * 1000,
+        },
+      };
+
+      const resolved = resolveDelegatorConfig(config);
+      expect(resolved.delegation.retentionMs).toBe(30 * 24 * 60 * 60 * 1000);
+    });
+
+    it('should allow disabling cleanupOnInitialize', () => {
+      const config: DelegatorConfig = {
+        ...minimalConfig,
+        cleanupOnInitialize: false,
+      };
+
+      const resolved = resolveDelegatorConfig(config);
+      expect(resolved.cleanupOnInitialize).toBe(false);
     });
 
     it('should preserve hooks', () => {
@@ -169,7 +198,6 @@ describe('resolveDelegatorConfig', () => {
 
       const resolved = resolveDelegatorConfig(config);
       expect(resolved.delegation.snapshot.mode).toBe('staged');
-      expect(resolved.delegation.snapshot.retentionMs).toBe(DEFAULT_DELEGATION.snapshot.retentionMs);
       expect(resolved.delegation.snapshot.maxSnapshots).toBe(DEFAULT_DELEGATION.snapshot.maxSnapshots);
     });
 
@@ -196,10 +224,10 @@ describe('DEFAULT constants', () => {
   });
 
   it('should have sensible delegation defaults', () => {
+    expect(DEFAULT_DELEGATION.retentionMs).toBe(7 * 24 * 60 * 60 * 1000);
     expect(DEFAULT_DELEGATION.lease.ttlSeconds).toBe(3600);
     expect(DEFAULT_DELEGATION.lease.accessMode).toBe('rw');
     expect(DEFAULT_DELEGATION.snapshot.mode).toBe('auto');
-    expect(DEFAULT_DELEGATION.snapshot.retentionMs).toBe(30 * 60 * 1000);
     expect(DEFAULT_DELEGATION.snapshot.maxSnapshots).toBe(10);
   });
 });

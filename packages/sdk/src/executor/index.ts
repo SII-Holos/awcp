@@ -1,8 +1,11 @@
 export { ExecutorService, type ExecutorServiceOptions } from './service.js';
 export {
   type ExecutorConfig,
-  type AdmissionConfig,
+  type ExecutorAdmissionConfig,
   type AssignmentConfig,
+  type TaskExecutor,
+  type TaskExecutionContext,
+  type TaskExecutionResult,
   type ExecutorHooks,
   type TaskStartContext,
   type ResolvedExecutorConfig,

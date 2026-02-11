@@ -141,6 +141,7 @@ export function createDelegation(params: {
   environment: EnvironmentSpec;
   task: Delegation['task'];
   leaseConfig: Delegation['leaseConfig'];
+  retentionMs: number;
   snapshotPolicy?: Delegation['snapshotPolicy'];
   exportPath?: string;
 }): Delegation {
@@ -152,6 +153,7 @@ export function createDelegation(params: {
     environment: params.environment,
     task: params.task,
     leaseConfig: params.leaseConfig,
+    retentionMs: params.retentionMs,
     snapshotPolicy: params.snapshotPolicy,
     exportPath: params.exportPath,
     createdAt: now,

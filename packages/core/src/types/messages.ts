@@ -153,6 +153,7 @@ export interface InviteMessage extends BaseMessage {
   type: 'INVITE';
   task: TaskSpec;
   lease: LeaseConfig;
+  retentionMs: number;
   environment: EnvironmentDeclaration;
   requirements?: Requirements;
   auth?: AuthCredential;
@@ -161,6 +162,7 @@ export interface InviteMessage extends BaseMessage {
 /** ACCEPT message: Executor → Delegator */
 export interface AcceptMessage extends BaseMessage {
   type: 'ACCEPT';
+  retentionMs: number;
   executorWorkDir: ExecutorWorkDir;
   executorConstraints?: ExecutorConstraints;
 }
@@ -169,7 +171,7 @@ export interface AcceptMessage extends BaseMessage {
 export interface StartMessage extends BaseMessage {
   type: 'START';
   lease: ActiveLease;
-  transport: TransportHandle;
+  transportHandle: TransportHandle;
 }
 
 /** DONE message: Executor → Delegator (via SSE) */
@@ -254,6 +256,8 @@ export interface Delegation {
   exportPath?: string;
   task: TaskSpec;
   leaseConfig: LeaseConfig;
+  retentionMs: number;
+  executorRetentionMs?: number;
   activeLease?: ActiveLease;
   executorWorkDir?: ExecutorWorkDir;
   executorConstraints?: ExecutorConstraints;
@@ -282,6 +286,7 @@ export interface Assignment {
   state: AssignmentState;
   invite: InviteMessage;
   workPath: string;
+  retentionMs: number;
   lease?: ActiveLease;
   startedAt?: string;
   completedAt?: string;
