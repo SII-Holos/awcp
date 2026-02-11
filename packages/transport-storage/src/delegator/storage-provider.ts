@@ -16,4 +16,5 @@ export interface StorageProvider {
   upload(key: string, data: Buffer, ttlSeconds: number): Promise<StorageUploadResult>;
   download(url: string, headers?: Record<string, string>): Promise<Buffer>;
   generateUrls(key: string, ttlSeconds: number): Promise<StorageUploadResult>;
+  release(key: string): Promise<void>;
 }

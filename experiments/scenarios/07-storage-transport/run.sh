@@ -6,29 +6,24 @@
 # Uses local filesystem storage provider for testing (simulates S3).
 #
 # Flow:
-#   MCP Client (trigger.ts)
-#       | stdio (JSON-RPC)
-#   awcp-mcp server (auto-starts Delegator Daemon with Storage transport)
+#   trigger.ts (DelegatorDaemonClient)
+#       |
+#   Delegator Daemon (Storage transport + LocalStorageProvider)
 #       | INVITE/START + SSE events
-#   OpenClaw Executor (:10201) with Storage transport
+#   Shared Executor Agent with AWCP_TRANSPORT=storage
 #       | Uses storage transport (pre-signed URLs)
 #   Local Storage Server (:3200)
-#
-# Prerequisites:
-#   - OpenClaw installed: npm install -g openclaw@latest
-#   - API key: DEEPSEEK_API_KEY, ANTHROPIC_API_KEY, OPENAI_API_KEY, or OPENROUTER_API_KEY
 
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/../../.." && pwd)"
-OPENCLAW_EXECUTOR_DIR="$ROOT_DIR/examples/openclaw-executor"
 export SCENARIO_DIR="$SCRIPT_DIR"
 
-# Port configuration (use different ports to avoid conflicts with other running executors)
-EXECUTOR_PORT="${EXECUTOR_PORT:-10201}"
+# Port configuration
+DELEGATOR_PORT="${DELEGATOR_PORT:-3100}"
+EXECUTOR_PORT="${EXECUTOR_PORT:-4001}"
 STORAGE_PORT="${STORAGE_PORT:-3200}"
-OPENCLAW_PORT="${OPENCLAW_PORT:-18790}"
 
 # Colors
 RED='\033[0;31m'
@@ -46,38 +41,10 @@ echo "This test uses URL-based storage transfer (simulates S3/cloud storage)."
 echo "A local file server simulates pre-signed URL functionality."
 echo ""
 
-# Check dependencies
-echo -e "${YELLOW}Checking dependencies...${NC}"
-
-if ! command -v node &> /dev/null; then
-    echo -e "${RED}Error: Node.js is required but not installed.${NC}"
-    exit 1
-fi
-
-if ! command -v openclaw &> /dev/null; then
-    echo -e "${RED}Error: OpenClaw not found. Install with:${NC}"
-    echo "   npm install -g openclaw@latest"
-    exit 1
-fi
-echo -e "${GREEN}✓ OpenClaw found: $(openclaw --version 2>/dev/null || echo 'installed')${NC}"
-
-# Check for API keys
-if [ -z "$ANTHROPIC_API_KEY" ] && [ -z "$OPENAI_API_KEY" ] && [ -z "$OPENROUTER_API_KEY" ] && [ -z "$DEEPSEEK_API_KEY" ]; then
-    echo -e "${YELLOW}Warning: No AI API key found. Set one of:${NC}"
-    echo "   - DEEPSEEK_API_KEY"
-    echo "   - ANTHROPIC_API_KEY"
-    echo "   - OPENAI_API_KEY"
-    echo "   - OPENROUTER_API_KEY"
-    echo ""
-fi
-
-echo -e "${GREEN}✓ Dependencies OK${NC}"
-echo ""
-
 # Build
 echo -e "${YELLOW}Building packages...${NC}"
 cd "$ROOT_DIR"
-npm run build > /dev/null 2>&1
+npx tsx node_modules/typescript/lib/tsc.js -b packages/core packages/transport-archive packages/transport-storage packages/sdk
 echo -e "${GREEN}✓ Build complete${NC}"
 echo ""
 
@@ -88,11 +55,6 @@ mkdir -p logs workdir exports temp workspace storage
 
 # Reset workspace
 echo -e "${YELLOW}Resetting workspace...${NC}"
-cat > workspace/README.md << 'EOF'
-# Storage Transport Test Project
-
-This project tests the AWCP Storage Transport with pre-signed URLs.
-EOF
 echo "Hello from Storage Transport test!" > workspace/hello.txt
 echo -e "${GREEN}✓ Workspace reset${NC}"
 
@@ -101,8 +63,9 @@ cleanup() {
     echo ""
     echo -e "${YELLOW}Cleaning up...${NC}"
     [ -n "$STORAGE_SERVER_PID" ] && kill $STORAGE_SERVER_PID 2>/dev/null || true
+    [ -n "$DELEGATOR_PID" ] && kill $DELEGATOR_PID 2>/dev/null || true
     [ -n "$EXECUTOR_PID" ] && kill $EXECUTOR_PID 2>/dev/null || true
-    ./cleanup.sh 2>/dev/null || true
+    rm -rf workdir/* exports/* temp/* storage/* 2>/dev/null || true
     echo -e "${GREEN}✓ Cleanup complete${NC}"
 }
 
@@ -111,7 +74,7 @@ trap cleanup EXIT
 # Start local storage server (simulates S3 pre-signed URLs)
 echo ""
 echo -e "${BLUE}Starting Local Storage Server on :${STORAGE_PORT}...${NC}"
-npx tsx storage-server.ts > logs/storage-server.log 2>&1 &
+STORAGE_PORT=$STORAGE_PORT npx tsx storage-server.ts > logs/storage-server.log 2>&1 &
 STORAGE_SERVER_PID=$!
 sleep 2
 
@@ -122,45 +85,37 @@ if ! kill -0 $STORAGE_SERVER_PID 2>/dev/null; then
 fi
 echo -e "${GREEN}✓ Storage server started (PID: $STORAGE_SERVER_PID)${NC}"
 
-# Start OpenClaw Executor with Storage transport
+# Start Delegator (with Storage transport)
 echo ""
-echo -e "${BLUE}Starting OpenClaw Executor with Storage transport on :${EXECUTOR_PORT}...${NC}"
-cd "$OPENCLAW_EXECUTOR_DIR"
-
-# Install dependencies if needed
-if [ ! -d "node_modules" ]; then
-    npm install > /dev/null 2>&1
-fi
-
-PORT=$EXECUTOR_PORT \
-OPENCLAW_PORT=$OPENCLAW_PORT \
-SCENARIO_DIR="$SCRIPT_DIR" \
-AWCP_TRANSPORT=storage \
-npx tsx src/agent.ts > "$SCRIPT_DIR/logs/executor.log" 2>&1 &
-EXECUTOR_PID=$!
-
-cd "$SCRIPT_DIR"
-
-# Wait for Executor to be ready
-echo -e "${YELLOW}Waiting for OpenClaw Gateway and Executor to start...${NC}"
-for i in {1..60}; do
-    if curl -s http://localhost:$EXECUTOR_PORT/health 2>/dev/null | grep -q '"status"'; then
-        echo -e "${GREEN}✓ OpenClaw Executor started (PID: $EXECUTOR_PID)${NC}"
-        break
-    fi
-    if [ $i -eq 60 ]; then
-        echo -e "${RED}Error: Executor failed to start. Check logs/executor.log${NC}"
-        cat logs/executor.log 2>/dev/null | tail -30
-        exit 1
-    fi
-    sleep 1
-done
-
-# Export storage config for MCP server
+echo -e "${BLUE}Starting Delegator Daemon (Storage transport)...${NC}"
 export AWCP_STORAGE_LOCAL_DIR="$SCRIPT_DIR/storage"
 export AWCP_STORAGE_ENDPOINT="http://localhost:$STORAGE_PORT"
-export EXECUTOR_URL="http://localhost:$EXECUTOR_PORT/awcp"
-export EXECUTOR_BASE_URL="http://localhost:$EXECUTOR_PORT"
+DELEGATOR_PORT=$DELEGATOR_PORT npx tsx start-delegator.ts > logs/delegator.log 2>&1 &
+DELEGATOR_PID=$!
+sleep 2
+
+if ! kill -0 $DELEGATOR_PID 2>/dev/null; then
+    echo -e "${RED}Error: Delegator failed to start. Check logs/delegator.log${NC}"
+    cat logs/delegator.log
+    exit 1
+fi
+echo -e "${GREEN}✓ Delegator started (PID: $DELEGATOR_PID)${NC}"
+
+# Start Executor (with Storage transport via AWCP_TRANSPORT env)
+echo ""
+echo -e "${BLUE}Starting Executor Agent (Storage transport)...${NC}"
+cd "$SCRIPT_DIR/../../shared/executor-agent"
+PORT=$EXECUTOR_PORT AWCP_TRANSPORT=storage SCENARIO_DIR="$SCRIPT_DIR" npx tsx src/agent.ts > "$SCRIPT_DIR/logs/executor.log" 2>&1 &
+EXECUTOR_PID=$!
+cd "$SCRIPT_DIR"
+sleep 2
+
+if ! kill -0 $EXECUTOR_PID 2>/dev/null; then
+    echo -e "${RED}Error: Executor failed to start. Check logs/executor.log${NC}"
+    cat logs/executor.log
+    exit 1
+fi
+echo -e "${GREEN}✓ Executor started (PID: $EXECUTOR_PID)${NC}"
 
 # Show workspace before
 echo ""
@@ -171,9 +126,9 @@ echo "----------------------------------------"
 
 # Trigger delegation
 echo ""
-echo -e "${BLUE}Running MCP integration test with Storage transport...${NC}"
-echo -e "${YELLOW}(MCP server will auto-start Delegator Daemon with Storage transport)${NC}"
-echo ""
+echo -e "${BLUE}Triggering delegation...${NC}"
+DELEGATOR_URL="http://localhost:$DELEGATOR_PORT" \
+EXECUTOR_URL="http://localhost:$EXECUTOR_PORT/awcp" \
 npx tsx trigger.ts
 TEST_EXIT_CODE=$?
 
@@ -200,8 +155,8 @@ echo "The file was transferred via pre-signed URLs (simulating S3)!"
 echo ""
 echo "Logs:"
 echo "  - logs/storage-server.log"
+echo "  - logs/delegator.log"
 echo "  - logs/executor.log"
-echo "  - logs/daemon.log"
 echo ""
 
 exit $TEST_EXIT_CODE

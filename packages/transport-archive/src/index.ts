@@ -5,11 +5,11 @@
  * Uses base64-encoded ZIP archives transmitted inline in protocol messages.
  */
 
-export { ArchiveTransport } from './archive-transport.js';
+export { ArchiveDelegatorTransport } from './delegator/transport.js';
+export { ArchiveExecutorTransport } from './executor/transport.js';
 
-export type { ArchiveTransportConfig } from './types.js';
+export type { ArchiveDelegatorTransportConfig, ArchiveExecutorTransportConfig } from './types.js';
 
-// Shared utilities for ZIP-based transports
 export {
   createArchive,
   extractArchive,

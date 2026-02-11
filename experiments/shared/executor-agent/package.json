@@ -13,6 +13,7 @@
     "@awcp/sdk": "*",
     "@awcp/transport-sshfs": "*",
     "@awcp/transport-archive": "*",
+    "@awcp/transport-storage": "*",
     "express": "^4.18.2"
   },
   "devDependencies": {

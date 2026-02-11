@@ -1,4 +1,6 @@
-export { StorageWorkDirInfo } from '@awcp/core';
+/**
+ * Storage Transport Configuration Types
+ */
 
 export interface StorageProviderConfig {
   type: 's3' | 'local';
@@ -10,17 +12,11 @@ export interface StorageProviderConfig {
   localDir?: string;
 }
 
-export interface StorageDelegatorConfig {
+export interface StorageDelegatorTransportConfig {
   provider: StorageProviderConfig;
   tempDir?: string;
-  urlTtlSeconds?: number;
 }
 
-export interface StorageExecutorConfig {
+export interface StorageExecutorTransportConfig {
   tempDir?: string;
-}
-
-export interface StorageTransportConfig {
-  delegator?: StorageDelegatorConfig;
-  executor?: StorageExecutorConfig;
 }

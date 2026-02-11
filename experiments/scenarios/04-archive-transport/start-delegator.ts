@@ -1,12 +1,12 @@
 /**
  * Start Delegator Daemon for 04-archive-transport scenario
- * 
- * Uses ArchiveTransport instead of SshfsTransport.
+ *
+ * Uses ArchiveDelegatorTransport instead of SshfsTransport.
  * No SSH/SSHFS dependencies required!
  */
 
 import { startDelegatorDaemon } from '@awcp/sdk';
-import { ArchiveTransport } from '@awcp/transport-archive';
+import { ArchiveDelegatorTransport } from '@awcp/transport-archive';
 import { resolve } from 'node:path';
 
 const SCENARIO_DIR = process.env.SCENARIO_DIR || process.cwd();
@@ -31,11 +31,7 @@ async function main() {
     port: PORT,
     delegator: {
       baseDir: exportsDir,
-      transport: new ArchiveTransport({
-        delegator: {
-          tempDir,
-        },
-      }),
+      transport: new ArchiveDelegatorTransport({ tempDir }),
     },
   });
 

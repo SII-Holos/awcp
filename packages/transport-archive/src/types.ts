@@ -2,17 +2,10 @@
  * Archive Transport Configuration Types
  */
 
-export { ArchiveWorkDirInfo } from '@awcp/core';
-
-export interface ArchiveDelegatorConfig {
+export interface ArchiveDelegatorTransportConfig {
   tempDir?: string;
 }
 
-export interface ArchiveExecutorConfig {
+export interface ArchiveExecutorTransportConfig {
   tempDir?: string;
-}
-
-export interface ArchiveTransportConfig {
-  delegator?: ArchiveDelegatorConfig;
-  executor?: ArchiveExecutorConfig;
 }

@@ -43,7 +43,7 @@ echo ""
 # Build packages if needed
 echo -e "${YELLOW}Building packages...${NC}"
 cd "$SCRIPT_DIR/../../.."
-npm run build
+npm run build -w @awcp/core && npm run build -w @awcp/transport-sshfs && npm run build -w @awcp/sdk
 echo -e "${GREEN}✓ Build complete${NC}"
 echo ""
 

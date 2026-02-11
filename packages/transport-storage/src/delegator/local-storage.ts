@@ -52,7 +52,7 @@ export class LocalStorageProvider implements StorageProvider {
     return { downloadUrl, uploadUrl, expiresAt };
   }
 
-  async cleanup(key: string): Promise<void> {
+  async release(key: string): Promise<void> {
     const filePath = path.join(this.baseDir, key);
     await fs.promises.unlink(filePath).catch(() => {});
     const resultPath = filePath.replace('.zip', '-result.zip');

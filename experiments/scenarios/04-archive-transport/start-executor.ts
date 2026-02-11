@@ -1,13 +1,13 @@
 /**
  * Start Executor Agent for 04-archive-transport scenario
- * 
- * Uses ArchiveTransport - downloads workspace as ZIP, works locally, uploads changes.
+ *
+ * Uses ArchiveExecutorTransport - downloads workspace as ZIP, works locally, uploads changes.
  */
 
 import { createServer } from 'node:http';
 import express, { json } from 'express';
 import { ExecutorService } from '@awcp/sdk';
-import { ArchiveTransport } from '@awcp/transport-archive';
+import { ArchiveExecutorTransport } from '@awcp/transport-archive';
 import type { AwcpMessage } from '@awcp/core';
 import { resolve } from 'node:path';
 
@@ -67,17 +67,10 @@ async function main() {
     executor: mockExecutor as any,
     config: {
       workDir,
-      transport: new ArchiveTransport({
-        executor: {
-          tempDir,
-        },
-      }),
+      transport: new ArchiveExecutorTransport({ tempDir }),
       admission: {
         maxConcurrentDelegations: 3,
         maxTtlSeconds: 3600,
-      },
-      defaults: {
-        autoAccept: true,
       },
       hooks: {
         onTaskStart: (ctx) => console.log(`[Executor] Task started: ${ctx.delegationId} at ${ctx.workPath}`),

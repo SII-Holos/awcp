@@ -30,7 +30,7 @@ echo ""
 # Build
 echo -e "${YELLOW}Building packages...${NC}"
 cd "$SCRIPT_DIR/../../.."
-npm run build
+npx tsx node_modules/typescript/lib/tsc.js -b packages/core packages/transport-archive packages/sdk
 echo -e "${GREEN}✓ Build complete${NC}"
 echo ""
 
