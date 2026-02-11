@@ -1,6 +1,6 @@
 {
   "name": "@awcp/transport-sshfs",
-  "version": "0.0.17",
+  "version": "0.0.18",
   "description": "AWCP SSHFS Transport - SSH/SFTP based data plane implementation",
   "type": "module",
   "main": "./dist/index.js",
@@ -22,7 +22,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@awcp/core": "^0.0.17"
+    "@awcp/core": "^0.0.18"
   },
   "keywords": [
     "awcp",

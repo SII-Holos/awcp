@@ -1,6 +1,6 @@
 {
   "name": "@awcp/transport-git",
-  "version": "0.0.17",
+  "version": "0.0.18",
   "description": "AWCP Git Transport - Git-based workspace transfer with version history",
   "type": "module",
   "main": "./dist/index.js",
@@ -22,8 +22,8 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@awcp/core": "^0.0.17",
-    "@awcp/transport-archive": "^0.0.17"
+    "@awcp/core": "^0.0.18",
+    "@awcp/transport-archive": "^0.0.18"
   },
   "keywords": [
     "awcp",
