@@ -60,6 +60,7 @@ export interface DelegatorTransportAdapter {
   shutdown?(): Promise<void>;
   prepare(params: TransportPrepareParams): Promise<TransportHandle>;
   applySnapshot?(params: TransportApplySnapshotParams): Promise<void>;
+  detach(delegationId: string): Promise<void>;
   release(delegationId: string): Promise<void>;
 }
 
@@ -72,5 +73,6 @@ export interface ExecutorTransportAdapter {
   checkDependency(): Promise<DependencyCheckResult>;
   setup(params: TransportSetupParams): Promise<string>;
   captureSnapshot?(params: TransportCaptureSnapshotParams): Promise<TransportCaptureSnapshotResult>;
+  detach(params: TransportReleaseParams): Promise<void>;
   release(params: TransportReleaseParams): Promise<void>;
 }

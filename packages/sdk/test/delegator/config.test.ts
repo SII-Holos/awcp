@@ -21,6 +21,7 @@ const mockTransport: DelegatorTransportAdapter = {
     exportLocator: '/tmp/test',
     credential: { privateKey: '', certificate: '' },
   }) as SshfsTransportHandle,
+  detach: async () => {},
   release: async () => {},
 };
 

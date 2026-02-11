@@ -19,6 +19,44 @@ export class CredentialManager {
     this.config = config;
   }
 
+  async loadAll(): Promise<void> {
+    const keyDir = this.config.keyDir ?? DEFAULT_KEY_DIR;
+
+    let entries: string[];
+    try {
+      entries = await readdir(keyDir);
+    } catch {
+      return;
+    }
+
+    for (const entry of entries) {
+      if (entry.endsWith('.pub')) continue;
+
+      const delegationId = entry;
+      const privateKeyPath = join(keyDir, delegationId);
+      const certPath = join(keyDir, `${delegationId}-cert.pub`);
+
+      try {
+        await access(certPath, constants.R_OK);
+      } catch {
+        continue;
+      }
+
+      try {
+        const privateKey = await readFile(privateKeyPath, 'utf-8');
+        this.activeCredentials.set(delegationId, {
+          privateKey,
+          privateKeyPath,
+          publicKeyPath: join(keyDir, `${delegationId}.pub`),
+          certPath,
+          delegationId,
+        });
+      } catch {
+        continue;
+      }
+    }
+  }
+
   async generateCredential(
     delegationId: string,
     ttlSeconds: number,

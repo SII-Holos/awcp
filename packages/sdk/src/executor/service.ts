@@ -140,7 +140,7 @@ export class ExecutorService implements ExecutorRequestHandler {
 
     const existing = this.assignments.get(delegationId);
     if (existing) {
-      await this.transport.release({ delegationId, localPath: existing.workPath }).catch(() => {});
+      await this.transport.detach({ delegationId, localPath: existing.workPath }).catch(() => {});
       this.eventEmitters.delete(delegationId);
 
       const retentionMs = Math.min(invite.retentionMs, this.config.assignment.maxRetentionMs);
@@ -387,7 +387,7 @@ export class ExecutorService implements ExecutorRequestHandler {
       };
       await this.persistAssignment(delegationId);
 
-      await this.transport.release({ delegationId, localPath: assignment.workPath }).catch(() => {});
+      await this.transport.detach({ delegationId, localPath: assignment.workPath }).catch(() => {});
     } catch (error) {
       console.error(`[AWCP:Executor] Task ${delegationId} failed:`, error instanceof Error ? error.message : error);
 
@@ -418,6 +418,8 @@ export class ExecutorService implements ExecutorRequestHandler {
         hint: 'Check task requirements and try again',
       };
       await this.persistAssignment(delegationId);
+
+      await this.transport.detach({ delegationId, localPath: assignment.workPath }).catch(() => {});
     }
   }
 
@@ -447,7 +449,7 @@ export class ExecutorService implements ExecutorRequestHandler {
     assignment.error = { code: ErrorCodes.CANCELLED, message: 'Delegation cancelled' };
     await this.persistAssignment(delegationId);
 
-    await this.transport.release({ delegationId, localPath: assignment.workPath }).catch(() => {});
+    await this.transport.detach({ delegationId, localPath: assignment.workPath }).catch(() => {});
 
     this.config.hooks.onError?.(
       delegationId,

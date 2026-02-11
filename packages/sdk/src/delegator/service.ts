@@ -171,7 +171,7 @@ export class DelegatorService implements DelegatorRequestHandler {
         );
       }
 
-      await this.transport.release(delegationId).catch(() => {});
+      await this.transport.detach(delegationId).catch(() => {});
 
       this.stateMachines.set(delegationId, new DelegationStateMachine());
     }
@@ -255,7 +255,7 @@ export class DelegatorService implements DelegatorRequestHandler {
       return delegationId;
     } catch (error) {
       if (isResume) {
-        await this.transport.release(delegationId).catch(() => {});
+        await this.transport.detach(delegationId).catch(() => {});
         await this.environmentManager.release(delegationId);
       } else {
         this.delegations.delete(delegationId);
@@ -315,7 +315,7 @@ export class DelegatorService implements DelegatorRequestHandler {
       await this.executorClient.sendStart(delegation.peerUrl, startMessage);
     } catch (error) {
       stream?.abort();
-      await this.transport.release(delegation.id).catch(() => {});
+      await this.transport.detach(delegation.id).catch(() => {});
       throw error;
     }
 
@@ -350,7 +350,7 @@ export class DelegatorService implements DelegatorRequestHandler {
     };
     await this.persistDelegation(delegation.id);
 
-    await this.transport.release(delegation.id).catch(() => {});
+    await this.transport.detach(delegation.id).catch(() => {});
     await this.environmentManager.release(delegation.id);
 
     this.config.hooks.onDelegationCompleted?.(delegation);
@@ -483,7 +483,7 @@ export class DelegatorService implements DelegatorRequestHandler {
 
     await this.persistDelegation(delegationId);
     await this.executorClient.sendCancel(delegation.peerUrl, delegationId).catch(console.error);
-    await this.transport.release(delegationId).catch(() => {});
+    await this.transport.detach(delegationId).catch(() => {});
   }
 
   getDelegation(delegationId: string): Delegation | undefined {

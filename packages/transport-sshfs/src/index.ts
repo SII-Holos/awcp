@@ -1,9 +1,10 @@
 /**
  * @awcp/transport-sshfs
- * 
+ *
  * SSHFS Transport implementation for AWCP data plane
  */
 
-export { SshfsTransport } from './sshfs-transport.js';
+export { SshfsDelegatorTransport } from './delegator/transport.js';
+export { SshfsExecutorTransport } from './executor/transport.js';
 
-export type { SshfsTransportConfig } from './types.js';
+export type { SshfsDelegatorTransportConfig, SshfsExecutorTransportConfig } from './types.js';

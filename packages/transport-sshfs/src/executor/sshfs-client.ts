@@ -185,6 +185,39 @@ export class SshfsMountClient {
     }
   }
 
+  async forceUnmount(mountPoint: string): Promise<void> {
+    const activeMount = this.activeMounts.get(mountPoint);
+
+    const unmountCommands = [
+      ['umount', mountPoint],
+      ['fusermount', '-u', mountPoint],
+      ['diskutil', 'unmount', mountPoint],
+      ['umount', '-f', mountPoint],
+      ['fusermount', '-uz', mountPoint],
+      ['diskutil', 'unmount', 'force', mountPoint],
+    ];
+
+    let success = false;
+    for (const cmd of unmountCommands) {
+      try {
+        await this.execCommand(cmd[0]!, cmd.slice(1));
+        success = true;
+        break;
+      } catch {
+        // Try next method
+      }
+    }
+
+    if (!success) {
+      console.warn(`[AWCP:SSHFS] Force unmount failed for ${mountPoint}, may need manual cleanup`);
+    }
+
+    if (activeMount) {
+      await this.cleanupCredentialFiles(activeMount.keyPath, activeMount.certPath);
+      this.activeMounts.delete(mountPoint);
+    }
+  }
+
   private execMount(args: string[], mountPoint: string): Promise<void> {
     const timeout = this.config.mountTimeout ?? DEFAULT_MOUNT_TIMEOUT;
 

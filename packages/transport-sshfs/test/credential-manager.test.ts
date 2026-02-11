@@ -96,6 +96,47 @@ describe('CredentialManager', () => {
     });
   });
 
+  describe('loadAll', () => {
+    it('should restore credentials from key files on disk', async () => {
+      await manager.generateCredential('load-1', 3600);
+      await manager.generateCredential('load-2', 3600);
+
+      const freshManager = new CredentialManager({
+        keyDir: testKeyDir,
+        caKeyPath: testCaKeyPath,
+      });
+
+      expect(freshManager.getCredential('load-1')).toBeUndefined();
+      expect(freshManager.getCredential('load-2')).toBeUndefined();
+
+      await freshManager.loadAll();
+
+      expect(freshManager.getCredential('load-1')).toBeDefined();
+      expect(freshManager.getCredential('load-1')?.delegationId).toBe('load-1');
+      expect(freshManager.getCredential('load-2')).toBeDefined();
+    });
+
+    it('should skip entries without certificate file', async () => {
+      const freshManager = new CredentialManager({
+        keyDir: testKeyDir,
+        caKeyPath: testCaKeyPath,
+      });
+
+      await freshManager.loadAll();
+
+      expect(freshManager.getCredential(testCaKeyPath.split('/').pop()!)).toBeUndefined();
+    });
+
+    it('should handle non-existent keyDir gracefully', async () => {
+      const freshManager = new CredentialManager({
+        keyDir: '/non/existent/dir',
+        caKeyPath: testCaKeyPath,
+      });
+
+      await expect(freshManager.loadAll()).resolves.not.toThrow();
+    });
+  });
+
   describe('revokeCredential', () => {
     it('should remove credential from tracking', async () => {
       const delegationId = 'test-revoke-123';
