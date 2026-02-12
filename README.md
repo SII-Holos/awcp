@@ -14,7 +14,7 @@ Modern AI agents are powerful, but they're isolated. When Claude needs help from
 - **Real file access**: Executor agents work with actual files, not copy-pasted snippets
 - **Lease-based sessions**: Time-limited delegations with automatic cleanup
 - **Drop-in integration**: Works with Claude Desktop via MCP, or any A2A-compatible agent
-- **Flexible transports**: Archive (HTTP+ZIP) for remote agents, SSHFS for low-latency local setups
+- **Flexible transports**: Four pluggable transports — Archive, Storage, SSHFS, and Git
 
 ## Quick Start
 
@@ -51,14 +51,14 @@ npm install @awcp/sdk @awcp/transport-archive
 
 ```typescript
 import { startDelegatorDaemon, DelegatorDaemonClient } from '@awcp/sdk';
-import { ArchiveTransport } from '@awcp/transport-archive';
+import { ArchiveDelegatorTransport } from '@awcp/transport-archive';
 
 // Start daemon
 const daemon = await startDelegatorDaemon({
   port: 3100,
   delegator: {
-    environment: { baseDir: '/tmp/awcp/environments' },
-    transport: new ArchiveTransport({ delegator: { tempDir: '/tmp/awcp/temp' } }),
+    baseDir: '/tmp/awcp/environments',
+    transport: new ArchiveDelegatorTransport({ tempDir: '/tmp/awcp/temp' }),
   },
 });
 
@@ -86,7 +86,7 @@ console.log(result.result?.summary);
 import express from 'express';
 import { executorHandler } from '@awcp/sdk/server/express';
 import { A2ATaskExecutor } from '@awcp/sdk';
-import { ArchiveTransport } from '@awcp/transport-archive';
+import { ArchiveExecutorTransport } from '@awcp/transport-archive';
 
 const app = express();
 
@@ -97,7 +97,7 @@ const awcp = await executorHandler({
   executor,
   config: {
     workDir: '/tmp/awcp/workdir',
-    transport: new ArchiveTransport({ executor: {} }),
+    transport: new ArchiveExecutorTransport({}),
   },
 });
 
@@ -115,11 +115,11 @@ Delegator                              Executor
     │  1. INVITE (task, environment)       │
     │─────────────────────────────────────>│
     │                                      │ 2. Policy check
-    │  3. ACCEPT (workDir, constraints)    │
+    │  3. ACCEPT (workDir, constraints)     │
     │<─────────────────────────────────────│
     │                                      │
     │ 4. Build environment & credentials   │
-    │  5. START (lease, workDirInfo)       │
+    │  5. START (lease, transportHandle)    │
     │─────────────────────────────────────>│
     │                                      │ 6. Setup workspace
     │  7. { ok: true }                     │
@@ -128,7 +128,7 @@ Delegator                              Executor
     │  8. GET /tasks/:id/events (SSE)      │ 9. Execute task
     │─────────────────────────────────────>│
     │  ◄── SSE: { type: "status" } ────────│
-    │  ◄── SSE: { type: "done" } ──────────│ 10. Teardown
+    │  ◄── SSE: { type: "done" } ──────────│ 10. Cleanup
     │                                      │
     │ 11. Apply result & cleanup           │
 ```
@@ -142,12 +142,13 @@ Key design principles:
 
 | Package | Description |
 |---------|-------------|
-| [`@awcp/core`](packages/core) | Protocol types, state machine, errors |
-| [`@awcp/sdk`](packages/sdk) | Delegator and Executor service implementations |
+| [`@awcp/core`](packages/core) | Protocol types, dual state machines, errors |
+| [`@awcp/sdk`](packages/sdk) | Delegator and Executor services, listeners, persistence |
 | [`@awcp/transport-archive`](packages/transport-archive) | Archive transport (HTTP + ZIP) |
-| [`@awcp/transport-sshfs`](packages/transport-sshfs) | SSHFS transport (SSH + mount) |
+| [`@awcp/transport-sshfs`](packages/transport-sshfs) | SSHFS transport (SSH + FUSE mount) |
 | [`@awcp/transport-storage`](packages/transport-storage) | Storage transport (S3/HTTP + pre-signed URLs) |
-| [`@awcp/mcp`](packages/mcp) | MCP tools for AI agents |
+| [`@awcp/transport-git`](packages/transport-git) | Git transport (version control + branch-based) |
+| [`@awcp/mcp`](packages/mcp) | MCP tools (7 tools) for AI agents |
 
 ## Transports
 
@@ -158,6 +159,7 @@ AWCP supports pluggable transports for the data plane:
 | **Archive** | Remote executors, simple setup | Workspace as ZIP, inline in messages |
 | **Storage** | Large workspaces, cloud environments | Workspace as ZIP, via pre-signed URLs |
 | **SSHFS** | Local executors, low latency | Real-time filesystem mount via SSH |
+| **Git** | Version-controlled projects | Git repo + branch-based collaboration |
 
 ### Archive Transport
 
@@ -177,6 +179,14 @@ npx @awcp/transport-sshfs setup --auto
 
 # Use with MCP
 awcp-mcp --transport sshfs --ssh-ca-key ~/.awcp/ca --peers http://localhost:10200
+```
+
+### Git Transport
+
+Integrates with existing Git infrastructure (GitHub, GitLab, etc.) for version-controlled collaboration.
+
+```bash
+awcp-mcp --transport git --git-remote-url https://github.com/org/repo.git --git-auth-type token --git-auth-token $GITHUB_TOKEN --peers http://localhost:10200
 ```
 
 ## Running the Examples
@@ -207,6 +217,7 @@ See [examples/synergy-executor](examples/synergy-executor) for a complete Execut
 - For SSHFS transport:
   - macOS: `brew install macfuse sshfs`
   - Linux: `apt install sshfs`
+- For Git transport: `git` CLI installed
 
 ## Documentation
 
@@ -220,7 +231,7 @@ See [examples/synergy-executor](examples/synergy-executor) for a complete Execut
 We welcome contributions! Please see [AGENTS.md](AGENTS.md) for development setup and guidelines.
 
 Areas where we'd love help:
-- Additional transport implementations (WebDAV, S3, etc.)
+- Additional transport implementations (WebDAV, rsync, etc.)
 - Language bindings (Python, Go, Rust)
 - Integration with other AI agent frameworks
 - Documentation and examples
@@ -229,29 +240,31 @@ Areas where we'd love help:
 
 ### ✅ Implemented (v1.0)
 - Core protocol: INVITE → ACCEPT → START → DONE/ERROR flow
-- State machine with 9 states and proper lifecycle management
-- Three transports: Archive, Storage, SSHFS
+- Dual state machines: Delegation (9 states) + Assignment (4 states)
+- Four transports: Archive, Storage, SSHFS, Git
 - Lease-based sessions with TTL
-- Admission control (size/file count limits)
-- MCP tools for Claude Desktop integration
-- SSE-based async task execution
+- Admission control (size/file count limits, sensitive file detection)
+- MCP tools (7 tools) for Claude Desktop integration
+- SSE-based async task execution with snapshot support
 - A2A protocol compatibility via adapter
+- Service lifecycle (`initialize`/`shutdown`) and JSON persistence
+- Two-phase transport cleanup (`detach`/`release`)
+- awcp-skill CLI for Synergy/OpenClaw agents
 
 ### 🚧 In Progress
 - S3 storage provider for `@awcp/transport-storage`
 - Lease expiration timer (auto-cleanup on TTL)
+- `delegate_recover` MCP tool (connection recovery)
 
 ### 📋 Planned
 - File filtering (`include`/`exclude` patterns in resources)
 - Progress tracking during task execution
 - Sandbox enforcement (cwdOnly, allowNetwork, allowExec)
 - Auth metadata handling for Executor authentication
-- WebSocket tunnel listener (NAT traversal)
 - Python SDK
 - Additional transports: WebDAV, rsync
 
 ### 💡 Under Consideration
-- Git-based collaboration mode (branch per delegation)
 - Multi-executor task orchestration
 - Decentralized identity (DID) for trust
 

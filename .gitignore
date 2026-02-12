@@ -65,6 +65,7 @@ id_ed25519*
 
 # Private documents
 ref/
+references/
 
 # Non-public directories (kept local only)
 docs/paper/
