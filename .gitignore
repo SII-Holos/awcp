@@ -69,9 +69,13 @@ references/
 
 # Non-public directories (kept local only)
 docs/paper/
+docs/paper-temp/
 examples/
 experiments/
 papers/
 
 # Skill build artifacts
 skill/*.zip
+
+# Scout agent cloned repos
+.scout-tmp/
