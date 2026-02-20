@@ -38,7 +38,7 @@ export async function startDelegatorDaemon(config: DaemonConfig): Promise<Daemon
   const baseUrl = `http://${host}:${port}`;
 
   const app = express();
-  app.use(json({ limit: '50mb' }));
+  app.use(json());
 
   const serviceOptions: DelegatorServiceOptions = {
     config: config.delegator,

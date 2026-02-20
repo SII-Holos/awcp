@@ -24,12 +24,12 @@
 │  │            │ HTTP       │                    │            │            │         │
 │  │  ┌─────────▼─────────┐  │                    │  ┌─────────▼─────────┐  │         │
 │  │  │ Delegator Daemon  │  │     Data Plane     │  │ TransportAdapter  │  │         │
-│  │  │ (DelegatorService)│  │  ───────────────>  │  │ (setup/teardown)  │  │         │
+│  │  │ (DelegatorService)│  │  ───────────────>  │  │ (setup/detach)    │  │         │
 │  │  └─────────┬─────────┘  │  SSHFS/Archive/    │  └─────────┬─────────┘  │         │
-│  │            │            │      Storage       │            │            │         │
+│  │            │            │  Storage/Git       │            │            │         │
 │  │  ┌─────────▼─────────┐  │                    │  ┌─────────▼─────────┐  │         │
 │  │  │ TransportAdapter  │  │                    │  │  Work Directory   │  │         │
-│  │  │ (prepare/cleanup) │  │                    │  │  /awcp/workspaces │  │         │
+│  │  │ (prepare/release) │  │                    │  │  /awcp/workspaces │  │         │
 │  │  └─────────┬─────────┘  │                    │  └───────────────────┘  │         │
 │  │            │            │                    │                         │         │
 │  │  ┌─────────▼─────────┐  │                    │                         │         │
@@ -50,14 +50,20 @@
 ## 2. 包依赖关系图
 
 ```
-                                 ┌──────────────────┐
-                                 │    @awcp/mcp     │
-                                 │  (MCP Server)    │
-                                 │                  │
-                                 │  • delegate      │
-                                 │  • delegate_output│
-                                 │  • delegate_cancel│
-                                 └────────┬─────────┘
+                                 ┌──────────────────────┐
+                                 │      @awcp/mcp       │
+                                 │    (MCP Server)      │
+                                 │                      │
+                                 │  • delegate          │
+                                 │  • delegate_output   │
+                                 │  • delegate_cancel   │
+                                 │  • delegate_snapshots│
+                                 │  • delegate_apply_   │
+                                 │    snapshot          │
+                                 │  • delegate_discard_ │
+                                 │    snapshot          │
+                                 │  • delegate_recover  │
+                                 └──────────┬───────────┘
                                           │
                                           │ depends on
                                           ▼
@@ -69,12 +75,16 @@
                  │               │  • Daemon        │               │
                  │               │  • Admission     │               │
                  │               │  • Environment   │               │
-                 │               │  • SnapshotStore │  ← NEW        │
+                 │               │  • SnapshotMgr   │               │
+                 │               │  • DelegationMgr │               │
+                 │               │  • ResourceReg   │               │
                  │               │                  │               │
                  │               │  Executor:       │               │
                  │               │  • Service       │               │
                  │               │  • A2AAdapter    │               │
-                 │               │  • Workspace     │               │
+                 │               │  • WorkspaceMgr  │               │
+                 │               │  • AssignmentMgr │               │
+                 │               │  • Admission     │               │
                  │               │                  │               │
                  │               │  Listeners:      │               │
                  │               │  • HTTP          │               │
@@ -87,23 +97,26 @@
 ┌────────────────┐  ┌────────────────┐  ┌──────────────────┐  ┌────────────────────┐
 │ @awcp/transport│  │ @awcp/transport│  │   @awcp/core     │  │ @awcp/transport-   │
 │     -sshfs     │  │     -git       │  │                  │  │     archive        │
-│                │  │     ← NEW      │  │  Types:          │  │                    │
-│• CredentialMgr │  │                │  │  • Messages      │  │  • createArchive   │
-│• SshfsMountCli │  │• GitTransport  │  │  • Transport     │  │  • extractArchive  │
-│                │  │• git-utils     │──│  • Snapshot ←NEW │──│  • applyResult     │
-└────────────────┘  └────────────────┘  │  • Service       │  └─────────┬──────────┘
-        │                  │            │                  │            │
-        │                  │            │  Utilities:      │            │ reuses utils
-        │                  │            │  • generateId    │            ▼
-        └──────────────────┴───────────►│    ← NEW         │  ┌────────────────────┐
-                                        │                  │  │ @awcp/transport-   │
-                                        │  Errors:         │  │     storage        │
+│                │  │                │  │  Types:          │  │                    │
+│• CredentialMgr │  │• GitTransport  │  │  • Messages      │  │  • createArchive   │
+│• SshfsMountCli │  │• git-utils     │──│  • Transport     │──│  • extractArchive  │
+│                │  │                │  │  • Snapshot      │  │  • applyResult     │
+└────────────────┘  └───────┬────────┘  │  • Assignment    │  └─────────┬──────────┘
+        │                  │            │  • Service       │            │
+        │                  │            │                  │            │ reuses utils
+        │                  │ reuses     │  Utilities:      │            ▼
+        │                  │ utils      │  • generateId    │  ┌────────────────────┐
+        │                  └───────────►│                  │  │ @awcp/transport-   │
+        └──────────────────────────────►│                  │  │     storage        │
+                                        │  Errors:         │  │                    │
                                         │  • AwcpError     │  │                    │
-                                        │  • 14 subclasses │  │  • StorageProvider │
+                                        │  • 15 subclasses │  │  • StorageProvider │
                                         │                  │  │  • LocalStorage    │
                                         │  State Machine:  │  │  • S3Storage       │
-                                        │  • 9 states      │  └────────────────────┘
-                                        │  • transitions   │
+                                        │  • DelegationSM  │  └────────────────────┘
+                                        │    (9 states)    │
+                                        │  • AssignmentSM  │
+                                        │    (4 states)    │
                                         │                  │
                                         │  Zero deps!      │
                                         └──────────────────┘
@@ -125,6 +138,7 @@
 │       │  │    • environment: { resources: ResourceDeclaration[] }       │   │             │
 │       │  │    • requirements?: { transport }                            │   │             │
 │       │  │    • auth?: { type, credential }                             │   │             │
+│       │  │    • retentionMs?: number                                    │   │             │
 │       │  └──────────────────────────────────────────────────────────────┘   │             │
 │       │ ──────────────────────── POST / ───────────────────────────────────►│             │
 │       │                                                                      │             │
@@ -142,6 +156,7 @@
 │       │  │    • executorConstraints?: {                                 │   │             │
 │       │  │        acceptedAccessMode, maxTtlSeconds, sandboxProfile     │   │             │
 │       │  │      }                                                       │   │             │
+│       │  │    • retentionMs?: number                                    │   │             │
 │       │  └──────────────────────────────────────────────────────────────┘   │             │
 │       │ ◄────────────────────── HTTP Response ──────────────────────────────│             │
 │       │                                                                      │             │
@@ -156,7 +171,7 @@
 │       │  ┌──────────────────────────────────────────────────────────────┐   │             │
 │       │  │ 3. START                                                     │   │             │
 │       │  │    • lease: { expiresAt, accessMode }                        │   │             │
-│       │  │    • workDir: WorkDirInfo (transport-specific)               │   │             │
+│       │  │    • transportHandle: TransportHandle (transport-specific)    │   │             │
 │       │  │      ├─ sshfs: endpoint + exportLocator + credential         │   │             │
 │       │  │      ├─ archive: workspaceBase64 + checksum                  │   │             │
 │       │  │      ├─ storage: downloadUrl + uploadUrl + checksum          │   │             │
@@ -293,6 +308,34 @@
 │  └────────────────────────────────────────────────────────────────────────────────┘  │
 │                                                                                       │
 └──────────────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────────────────────────────────────────────────────────────────┐
+│                         Assignment State Machine (Executor 侧)                        │
+├──────────────────────────────────────────────────────────────────────────────────────┤
+│                                                                                       │
+│                                                                                       │
+│      ┌─────────┐  RECEIVE_START   ┌─────────┐  TASK_COMPLETE  ┌───────────┐          │
+│      │ pending │ ────────────────► │  active │ ──────────────► │ completed │          │
+│      └────┬────┘                   └────┬────┘                 └───────────┘          │
+│           │                             │                                             │
+│           │ RECEIVE_ERROR               │ TASK_FAIL                                   │
+│           │ CANCEL                      │ CANCEL                                      │
+│           │                             │                                             │
+│           ▼                             ▼                                             │
+│      ┌──────────────────────────────────────┐                                        │
+│      │               error                  │                                        │
+│      └──────────────────────────────────────┘                                        │
+│                                                                                       │
+│  Transition Events:                                                                   │
+│  ┌────────────────────────────────────────────────────────────────────────────────┐  │
+│  │ RECEIVE_START  : pending → active                                              │  │
+│  │ TASK_COMPLETE  : active → completed                                            │  │
+│  │ TASK_FAIL      : active → error                                                │  │
+│  │ RECEIVE_ERROR  : pending → error                                               │  │
+│  │ CANCEL         : pending/active → error                                        │  │
+│  └────────────────────────────────────────────────────────────────────────────────┘  │
+│                                                                                       │
+└──────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ## 5. @awcp/sdk 内部组件
@@ -309,35 +352,37 @@
 │  │  ┌──────────────────────────────┐  │    │  ┌──────────────────────────────┐  │   │
 │  │  │      DelegatorService        │  │    │  │      ExecutorService         │  │   │
 │  │  │  ┌────────────────────────┐  │  │    │  │  ┌────────────────────────┐  │  │   │
-│  │  │  │ • delegations Map      │  │  │    │  │  │ • pendingInvitations   │  │  │   │
-│  │  │  │ • stateMachines Map    │  │  │    │  │  │ • activeDelegations    │  │  │   │
-│  │  │  │ • executorUrls Map     │  │  │    │  │  │ • completedDelegations │  │  │   │
-│  │  │  └────────────────────────┘  │  │    │  │  │ • eventEmitters Map    │  │  │   │
-│  │  │                              │  │    │  │  └────────────────────────┘  │  │   │
-│  │  │  delegate()                  │  │    │  │                              │  │   │
-│  │  │  handleAccept()              │  │    │  │  handleMessage()             │  │   │
-│  │  │  handleDone()                │  │    │  │  handleInvite()              │  │   │
-│  │  │  handleSnapshot()            │  │    │  │  handleStart()               │  │   │
-│  │  │  handleError()               │  │    │  │  executeTask()               │  │   │
-│  │  │  listSnapshots()             │  │    │  │  subscribeTask()             │  │   │
-│  │  │  applySnapshot()             │  │    │  │  getTaskResult()             │  │   │
-│  │  │  cancel()                    │  │    │  │  acknowledgeResult()         │  │   │
-│  │  │  waitForCompletion()         │  │    │  │  cancelDelegation()          │  │   │
+│  │  │  │ • delegations Map      │  │  │    │  │  │ • assignments Map      │  │  │   │
+│  │  │  │ • stateMachines Map    │  │  │    │  │  │ • stateMachines Map    │  │  │   │
+│  │  │  │ • executorUrls Map     │  │  │    │  │  │ • eventEmitters Map    │  │  │   │
+│  │  │  └────────────────────────┘  │  │    │  │  └────────────────────────┘  │  │   │
+│  │  │                              │  │    │  │                              │  │   │
+│  │  │  initialize()               │  │    │  │  initialize()               │  │   │
+│  │  │  shutdown()                  │  │    │  │  shutdown()                  │  │   │
+│  │  │  delegate()                  │  │    │  │  handleMessage()             │  │   │
+│  │  │  handleAccept()              │  │    │  │  subscribeTask()             │  │   │
+│  │  │  handleDone()                │  │    │  │  getTaskResult()             │  │   │
+│  │  │  handleSnapshot()            │  │    │  │  acknowledgeResult()         │  │   │
+│  │  │  handleError()               │  │    │  │  cancelDelegation()          │  │   │
+│  │  │  listSnapshots()             │  │    │  │                              │  │   │
+│  │  │  applySnapshot()             │  │    │  │                              │  │   │
+│  │  │  cancel()                    │  │    │  │                              │  │   │
+│  │  │  waitForCompletion()         │  │    │  │                              │  │   │
 │  │  └──────────────────────────────┘  │    │  └──────────────────────────────┘  │   │
-│  │           │           │            │    │           │           │            │   │
-│  │           │           │            │    │           │           │            │   │
-│  │           ▼           ▼            │    │           ▼           ▼            │   │
-│  │  ┌────────────┐ ┌────────────┐ ┌────────────┐   │  ┌────────────┐ ┌────────────┐     │   │
-│  │  │ Admission  │ │Environment │ │ Snapshot   │   │  │ Workspace  │ │   Task     │     │   │
-│  │  │ Controller │ │  Builder   │ │   Store    │   │  │  Manager   │ │  Executor  │     │   │
-│  │  ├────────────┤ ├────────────┤ ├────────────┤   │  ├────────────┤ ├────────────┤     │   │
-│  │  │check()     │ │build()     │ │save()      │   │  │allocate()  │ │execute()   │     │   │
-│  │  │• size      │ │release()   │ │load()      │   │  │prepare()   │ │            │     │   │
-│  │  │• count     │ │            │ │delete()    │   │  │release()   │ │ Injected:  │     │   │
-│  │  │• single    │ │ uses:      │ │cleanup()   │   │  │validate()  │ │ • A2A      │     │   │
-│  │  │            │ │ FsResource │ │            │   │  │            │ │ • Custom   │     │   │
-│  │  │            │ │ Adapter    │ │            │   │  │            │ │            │     │   │
-│  │  └────────────┘ └────────────┘ └────────────┘   │  └────────────┘ └────────────┘     │   │
+│  │         │         │         │      │    │       │       │       │       │    │   │
+│  │         │         │         │      │    │       │       │       │       │    │   │
+│  │         ▼         ▼         ▼      │    │       ▼       ▼       ▼       ▼    │   │
+│  │  ┌──────────┐┌──────────┐┌──────────┐┌──────────┐│┌──────────┐┌──────────┐┌──────────┐┌──────────┐│
+│  │  │Admission ││Environmt ││ Snapshot ││Delegation││││Workspace ││  Task    ││Assignmnt ││Admission ││
+│  │  │Controller││ Manager  ││ Manager  ││ Manager  ││││ Manager  ││ Executor ││ Manager  ││Controller││
+│  │  ├──────────┤├──────────┤├──────────┤├──────────┤│├──────────┤├──────────┤├──────────┤├──────────┤│
+│  │  │check()   ││build()   ││receive() ││save()    ││││allocate()││execute() ││save()    ││check()   ││
+│  │  │• size    ││release() ││apply()   ││loadAll() ││││prepare() ││          ││loadAll() ││•concurrnt││
+│  │  │• count   ││cleanStale││discard() ││delete()  ││││release() ││Injected: ││delete()  ││• TTL     ││
+│  │  │• single  ││          ││cleanDlg()││          ││││cleanStale││ • A2A    ││          ││• access  ││
+│  │  │•sensitive││uses:     ││          ││          ││││          ││ • Custom ││          ││•transport││
+│  │  │          ││ResourceRg││          ││          ││││          ││          ││          ││          ││
+│  │  └──────────┘└──────────┘└──────────┘└──────────┘│└──────────┘└──────────┘└──────────┘└──────────┘│
 │  │                                    │    │                                    │   │
 │  │           │                        │    │                                    │   │
 │  │           ▼                        │    │                                    │   │
@@ -517,6 +562,10 @@
 │   │                  │      │ • delegate (inject peer context)   │              │    │
 │   │                  │      │ • delegate_output                  │              │    │
 │   │                  │      │ • delegate_cancel                  │              │    │
+│   │                  │      │ • delegate_snapshots               │              │    │
+│   │                  │      │ • delegate_apply_snapshot           │              │    │
+│   │                  │      │ • delegate_discard_snapshot         │              │    │
+│   │                  │      │ • delegate_recover                  │              │    │
 │   │                  │      └────────────────────────────────────┘              │    │
 │   │                  ▼                                                           │    │
 │   │   6. Connect via StdioServerTransport                                       │    │
@@ -581,18 +630,33 @@
 │  │  │ type: TransportType      │          │ type: TransportType      │             │ │
 │  │  │ capabilities: {...}      │          │ capabilities: {...}      │             │ │
 │  │  │                          │          │                          │             │ │
+│  │  │ initialize?(workDir)     │          │ initialize?(workDir)     │             │ │
+│  │  │  → void                  │          │  → void                  │             │ │
+│  │  │                          │          │                          │             │ │
+│  │  │ shutdown?()              │          │ shutdown?()              │             │ │
+│  │  │  → void                  │          │  → void                  │             │ │
+│  │  │                          │          │                          │             │ │
 │  │  │ prepare(params)          │          │ checkDependency()        │             │ │
-│  │  │  → { workDirInfo }       │          │  → { available, hint }   │             │ │
+│  │  │  → TransportHandle       │          │  → { available, hint }   │             │ │
 │  │  │                          │          │                          │             │ │
 │  │  │ applySnapshot?(params)   │          │ setup(params)            │             │ │
 │  │  │  → void                  │          │  → workPath              │             │ │
 │  │  │                          │          │                          │             │ │
-│  │  │ cleanup(delegationId)    │          │ teardown(params)         │             │ │
+│  │  │ detach(delegationId)     │          │ captureSnapshot?(params) │             │ │
 │  │  │  → void                  │          │  → { snapshotBase64? }   │             │ │
+│  │  │                          │          │                          │             │ │
+│  │  │ release(delegationId)    │          │ detach(params)           │             │ │
+│  │  │  → void                  │          │  → void                  │             │ │
+│  │  │                          │          │                          │             │ │
+│  │  │                          │          │ release(params)          │             │ │
+│  │  │                          │          │  → void                  │             │ │
 │  │  └──────────────────────────┘          └──────────────────────────┘             │ │
 │  │                                                                                  │ │
-│  │  Implementations: SshfsTransport, ArchiveTransport, StorageTransport,           │ │
-│  │                   GitTransport                                                   │ │
+│  │  Implementations:                                                                │ │
+│  │    SshfsDelegatorTransport, SshfsExecutorTransport,                              │ │
+│  │    ArchiveDelegatorTransport, ArchiveExecutorTransport,                          │ │
+│  │    StorageDelegatorTransport, StorageExecutorTransport,                          │ │
+│  │    GitDelegatorTransport, GitExecutorTransport                                   │ │
 │  └─────────────────────────────────────────────────────────────────────────────────┘ │
 │                                                                                       │
 │  ┌─────────────────────────────────────────────────────────────────────────────────┐ │
@@ -700,14 +764,17 @@
 │  ├────────────────┤           │                │           │                │        │
 │  │WorkDirDenied   │           │                │           │                │        │
 │  │                │           │                │           │                │        │
+│  ├────────────────┤           │                │           │                │        │
+│  │SensitiveFiles  │           │                │           │                │        │
+│  │• files: string[]│          │                │           │                │        │
 │  └────────────────┘           └────────────────┘           └────────────────┘        │
 │                                                                                       │
-│  Error Codes (14 total):                                                             │
+│  Error Codes (15 total):                                                             │
 │  ┌────────────────────────────────────────────────────────────────────────────────┐  │
 │  │ WORKSPACE_TOO_LARGE  WORKSPACE_NOT_FOUND  WORKSPACE_INVALID  WORKDIR_DENIED    │  │
-│  │ SETUP_FAILED         TRANSPORT_ERROR      CHECKSUM_MISMATCH  DEP_MISSING       │  │
-│  │ DECLINED             AUTH_FAILED          TASK_FAILED        CANCELLED         │  │
-│  │ START_EXPIRED        EXPIRED                                                    │  │
+│  │ SENSITIVE_FILES       SETUP_FAILED         TRANSPORT_ERROR    CHECKSUM_MISMATCH │  │
+│  │ DEP_MISSING           DECLINED             AUTH_FAILED        TASK_FAILED       │  │
+│  │ CANCELLED             START_EXPIRED        EXPIRED                              │  │
 │  └────────────────────────────────────────────────────────────────────────────────┘  │
 │                                                                                       │
 └──────────────────────────────────────────────────────────────────────────────────────┘
@@ -753,7 +820,7 @@
 │  │                          3. Environment Building                                 │ │
 │  └─────────────────────────────────────────────────────────────────────────────────┘ │
 │                                                                                       │
-│     EnvironmentBuilder.build(delegationId, environment)                              │
+│     EnvironmentManager.build(delegationId, environment)                              │
 │         │                                                                             │
 │         ├── Create: ~/.awcp/envs/{delegationId}/                                     │
 │         ├── Symlink: workspace → ./my-project                                        │
@@ -785,7 +852,7 @@
 │  │                          5. Transport Preparation                                │ │
 │  └─────────────────────────────────────────────────────────────────────────────────┘ │
 │                                                                                       │
-│         └── ArchiveTransport.prepare()                                               │
+│         └── ArchiveDelegatorTransport.prepare()                                      │
 │                 │                                                                     │
 │                 ├── ZIP: ~/.awcp/envs/{id}/ → /tmp/awcp/{id}.zip                     │
 │                 ├── Checksum: SHA-256 → "a1b2c3..."                                  │
@@ -794,7 +861,7 @@
 │     ExecutorClient.sendStart()                                                        │
 │         │                                                                             │
 │         │  POST http://executor:10200/awcp                                           │
-│         │  { type: "START", lease, workDir: {                                        │
+│         │  { type: "START", lease, transportHandle: {                                │
 │         │      transport: "archive",                                                 │
 │         │      workspaceBase64: "UEsDBBQ...",                                        │
 │         │      checksum: "a1b2c3..."                                                 │
@@ -808,7 +875,7 @@
 │  │                           6. Workspace Setup                                     │ │
 │  └─────────────────────────────────────────────────────────────────────────────────┘ │
 │                                                                                       │
-│         └── ArchiveTransport.setup()                                                 │
+│         └── ArchiveExecutorTransport.setup()                                         │
 │                 │                                                                     │
 │                 ├── Decode: base64 → /tmp/workspace.zip                              │
 │                 ├── Verify: SHA-256 checksum ✓                                       │
@@ -838,7 +905,7 @@
 │  │                              8. Result Return                                    │ │
 │  └─────────────────────────────────────────────────────────────────────────────────┘ │
 │                                                                                       │
-│         └── ArchiveTransport.teardown()                                              │
+│         └── ArchiveExecutorTransport.captureSnapshot() + detach()                    │
 │                 │                                                                     │
 │                 ├── ZIP: /awcp/workspaces/{id}/ → result.zip                         │
 │                 └── Encode: base64 → resultBase64                                    │
@@ -852,7 +919,7 @@
 │  │                            9. Result Application                                 │ │
 │  └─────────────────────────────────────────────────────────────────────────────────┘ │
 │                                                                                       │
-│         └── ArchiveTransport.applyResult()                                           │
+│         └── ArchiveDelegatorTransport.applySnapshot()                                │
 │                 │                                                                     │
 │                 ├── Decode: base64 → /tmp/result.zip                                 │
 │                 ├── Extract: → /tmp/result/                                          │

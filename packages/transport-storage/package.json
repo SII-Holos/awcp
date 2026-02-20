@@ -35,7 +35,7 @@
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
-    "url": "https://github.com/anthropics/awcp.git",
+    "url": "https://github.com/SII-Holos/awcp.git",
     "directory": "packages/transport-storage"
   }
 }
