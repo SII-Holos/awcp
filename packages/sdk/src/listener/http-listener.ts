@@ -27,7 +27,7 @@ export class HttpListener implements ListenerAdapter {
 
   async start(handler: ExecutorRequestHandler, callbacks?: ListenerCallbacks): Promise<ListenerInfo | null> {
     this.router = Router();
-    this.router.use(json());
+    this.router.use(json({ limit: '50mb' }));
 
     this.router.post('/', async (req, res) => {
       try {
@@ -97,6 +97,74 @@ export class HttpListener implements ListenerAdapter {
         const status = error instanceof Error && error.message.includes('not found') ? 404 : 500;
         res.status(status).json({
           error: error instanceof Error ? error.message : 'Internal error',
+        });
+      }
+    });
+
+    // ========== Chunked Transfer Endpoints ==========
+
+    // 接收单个分块
+    this.router.post('/chunks/:delegationId', async (req, res) => {
+      try {
+        const { delegationId } = req.params;
+        const { index, data, checksum } = req.body;
+
+        if (typeof index !== 'number' || typeof data !== 'string' || typeof checksum !== 'string') {
+          res.status(400).json({ error: 'Invalid chunk data' });
+          return;
+        }
+
+        await handler.receiveChunk(delegationId, index, data, checksum);
+        res.json({ ok: true, received: index });
+      } catch (error) {
+        console.error('[AWCP:HttpListener] Chunk receive error:', error);
+        res.status(400).json({
+          error: error instanceof Error ? error.message : 'Chunk receive failed',
+        });
+      }
+    });
+
+    // 查询分块状态（用于断点续传）
+    this.router.get('/chunks/:delegationId/status', (req, res) => {
+      try {
+        const { delegationId } = req.params;
+        const status = handler.getChunkStatus(delegationId);
+
+        if (!status.exists) {
+          res.status(404).json({ error: 'Chunk receiver not found' });
+          return;
+        }
+
+        res.json({
+          received: status.received,
+          missing: status.missing,
+          complete: status.complete,
+        });
+      } catch (error) {
+        console.error('[AWCP:HttpListener] Chunk status error:', error);
+        res.status(500).json({
+          error: error instanceof Error ? error.message : 'Internal error',
+        });
+      }
+    });
+
+    // 完成分块传输
+    this.router.post('/chunks/:delegationId/complete', async (req, res) => {
+      try {
+        const { delegationId } = req.params;
+        const { totalChecksum } = req.body;
+
+        if (typeof totalChecksum !== 'string') {
+          res.status(400).json({ error: 'Missing totalChecksum' });
+          return;
+        }
+
+        await handler.completeChunks(delegationId, totalChecksum);
+        res.json({ ok: true, assembled: true });
+      } catch (error) {
+        console.error('[AWCP:HttpListener] Chunk complete error:', error);
+        res.status(400).json({
+          error: error instanceof Error ? error.message : 'Chunk assembly failed',
         });
       }
     });

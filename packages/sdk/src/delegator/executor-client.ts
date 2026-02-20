@@ -16,10 +16,10 @@ export class ExecutorClient {
   private sseMaxRetries: number;
   private sseRetryDelayMs: number;
 
-  constructor(timeout: number, sseMaxRetries: number, sseRetryDelayMs: number) {
-    this.timeout = timeout;
-    this.sseMaxRetries = sseMaxRetries;
-    this.sseRetryDelayMs = sseRetryDelayMs;
+  constructor(options?: ExecutorClientOptions) {
+    this.timeout = options?.timeout ?? 300000; // 5 minutes for large transfers
+    this.sseMaxRetries = options?.sseMaxRetries ?? 3;
+    this.sseRetryDelayMs = options?.sseRetryDelayMs ?? 2000;
   }
 
   async sendInvite(executorUrl: string, message: AwcpMessage): Promise<InviteResponse> {

@@ -79,7 +79,7 @@ export class DelegatorDaemonClient {
 
   constructor(daemonUrl: string, options?: { timeout?: number }) {
     this.baseUrl = daemonUrl.replace(/\/$/, '');
-    this.timeout = options?.timeout ?? 30000;
+    this.timeout = options?.timeout ?? 300000; // 5 minutes for large file transfers
   }
 
   /**

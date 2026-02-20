@@ -30,30 +30,10 @@ import {
 } from '@awcp/core';
 import { type DelegatorConfig, type ResolvedDelegatorConfig, type DelegateParams, resolveDelegatorConfig } from './config.js';
 import { AdmissionController } from './admission.js';
-import { DelegationManager } from './delegation-manager.js';
-import { EnvironmentManager } from './environment-manager.js';
-import { ExecutorClient, type TaskEventStream } from './executor-client.js';
-import { SnapshotManager } from './snapshot-manager.js';
-
-export interface DelegatorDelegationInfo {
-  id: string;
-  state: string;
-  executorUrl: string;
-  environment: EnvironmentSpec;
-  createdAt: string;
-}
-
-export interface DelegatorServiceStatus {
-  activeDelegations: number;
-  delegations: DelegatorDelegationInfo[];
-}
-
-export interface DelegatorRequestHandler {
-  delegate(params: DelegateParams): Promise<string>;
-  cancel(delegationId: string): Promise<void>;
-  getDelegation(delegationId: string): Delegation | undefined;
-  getStatus(): DelegatorServiceStatus;
-}
+import { EnvironmentBuilder } from './environment-builder.js';
+import { ExecutorClient } from './executor-client.js';
+import { SnapshotStore } from './snapshot-store.js';
+import type { ArchiveTransport } from '@awcp/transport-archive';
 
 export interface DelegatorServiceOptions {
   config: DelegatorConfig;
@@ -325,6 +305,47 @@ export class DelegatorService implements DelegatorRequestHandler {
     this.consumeTaskEvents(delegation.id, stream).catch((error) => {
       console.error(`[AWCP:Delegator] SSE error for ${delegation.id}:`, error);
     });
+
+    const expiresAt = new Date(
+      Date.now() + delegation.leaseConfig.ttlSeconds * 1000
+    ).toISOString();
+
+    const startMessage: StartMessage = {
+      version: PROTOCOL_VERSION,
+      type: 'START',
+      delegationId: delegation.id,
+      lease: {
+        expiresAt,
+        accessMode: delegation.leaseConfig.accessMode,
+      },
+      workDir: workDirInfo,
+    };
+
+    this.transitionState(delegation.id, { type: 'SEND_START', message: startMessage });
+    updated.activeLease = startMessage.lease;
+    this.delegations.set(delegation.id, updated);
+
+    await this.executorClient.sendStart(executorUrl, startMessage);
+
+    // Chunked upload
+    if (this.transport.type === 'archive') {
+      const archiveTransport = this.transport as unknown as ArchiveTransport;
+      if (archiveTransport.isChunkedMode(delegation.id)) {
+        console.log(`[AWCP:Delegator] Starting chunked upload for ${delegation.id}`);
+        try {
+          await archiveTransport.uploadChunks(delegation.id, executorUrl);
+          console.log(`[AWCP:Delegator] Chunked upload complete for ${delegation.id}`);
+        } catch (error) {
+          console.error(`[AWCP:Delegator] Chunked upload failed for ${delegation.id}:`, error);
+          await this.cleanup(delegation.id);
+          throw error;
+        }
+      }
+    }
+
+    this.config.hooks.onDelegationStarted?.(updated);
+
+    this.subscribeToTaskEvents(delegation.id, executorUrl);
   }
 
   async handleDone(message: DoneMessage): Promise<void> {

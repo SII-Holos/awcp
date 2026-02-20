@@ -1,0 +1,13 @@
+{
+  "name": "09-multimodal-test",
+  "version": "1.0.0",
+  "type": "module",
+  "private": true,
+  "description": "AWCP multimodal capability test with image analysis and processing",
+  "scripts": {
+    "start": "./run.sh"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0"
+  }
+}
