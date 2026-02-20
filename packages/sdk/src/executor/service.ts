@@ -18,13 +18,9 @@ import {
   type TaskSnapshotEvent,
   type TaskDoneEvent,
   type TaskErrorEvent,
-  type ActiveLease,
-  type ExecutorRequestHandler,
-  type ExecutorServiceStatus,
-  type TaskExecutor,
-  type TaskResultResponse,
-  type ChunkStatusResponse,
-  type ArchiveWorkDirInfo,
+  type AssignmentEvent,
+  AssignmentStateMachine,
+  isTerminalAssignmentState,
   generateSnapshotId,
   createAssignment,
   PROTOCOL_VERSION,
@@ -38,7 +34,6 @@ import type { ExecutorRequestHandler, ExecutorServiceStatus, TaskResultResponse 
 import { AdmissionController } from './admission.js';
 import { AssignmentManager } from './assignment-manager.js';
 import { WorkspaceManager } from './workspace-manager.js';
-import type { ArchiveTransport } from '@awcp/transport-archive';
 
 export interface ExecutorServiceOptions {
   executor: TaskExecutor;
@@ -48,15 +43,14 @@ export interface ExecutorServiceOptions {
 export class ExecutorService implements ExecutorRequestHandler {
   private config: ResolvedExecutorConfig;
   private transport: ExecutorTransportAdapter;
-  private workspace: WorkspaceManager;
-  private pendingInvitations = new Map<string, PendingInvitation>();
-  private activeDelegations = new Map<string, ActiveDelegation>();
-  private completedDelegations = new Map<string, CompletedDelegation>();
-  // Resolvers for waiting on chunk completion
-  private chunkCompletionResolvers = new Map<string, {
-    resolve: () => void;
-    reject: (error: Error) => void;
-  }>();
+  private executor: TaskExecutor;
+  private admissionController: AdmissionController;
+  private workspaceManager: WorkspaceManager;
+  private assignmentManager: AssignmentManager;
+  private assignments = new Map<string, Assignment>();
+  private stateMachines = new Map<string, AssignmentStateMachine>();
+  private eventEmitters = new Map<string, EventEmitter>();
+  private cleanupTimer?: ReturnType<typeof setInterval>;
 
   constructor(options: ExecutorServiceOptions) {
     this.config = resolveExecutorConfig(options.config);
@@ -234,87 +228,7 @@ export class ExecutorService implements ExecutorRequestHandler {
       ` (active=${Array.from(this.assignments.values()).filter(a => a.state === 'active').length}, workPath=${assignment.workPath})`
     );
 
-    // Check if chunked mode
-    const workDirInfo = start.workDir as ArchiveWorkDirInfo;
-    const isChunked = workDirInfo.transport === 'archive' && !!workDirInfo.chunked;
-    
-    if (isChunked) {
-      const archiveTransport = this.transport as unknown as ArchiveTransport;
-      archiveTransport.initChunkReceiver(delegationId, workDirInfo.chunked!);
-    }
-
-    // Task execution runs async - don't await
-    // IMPORTANT: Don't block here - return immediately so HTTP response is sent
-    // Chunked transfer will be awaited inside executeTask
-    this.executeTaskWithChunkWait(
-      delegationId, start, workPath, pending.invite.task, start.lease, 
-      pending.invite.environment, eventEmitter, isChunked
-    );
-  }
-
-  /**
-   * Execute task with optional chunk wait
-   * Separated to avoid blocking the HTTP handler
-   */
-  private async executeTaskWithChunkWait(
-    delegationId: string,
-    start: StartMessage,
-    workPath: string,
-    task: TaskSpec,
-    lease: ActiveLease,
-    environment: EnvironmentDeclaration,
-    eventEmitter: EventEmitter,
-    isChunked: boolean,
-  ): Promise<void> {
-    // Wait for chunks if in chunked mode
-    if (isChunked) {
-      console.log(`[AWCP:Executor] Waiting for chunked transfer: ${delegationId}`);
-      try {
-        await this.waitForChunks(delegationId);
-        console.log(`[AWCP:Executor] Chunked transfer complete: ${delegationId}`);
-      } catch (error) {
-        console.error(`[AWCP:Executor] Chunked transfer failed: ${delegationId}`, error);
-
-        const errorEvent: TaskErrorEvent = {
-          delegationId,
-          type: 'error',
-          timestamp: new Date().toISOString(),
-          code: ErrorCodes.TRANSPORT_ERROR,
-          message: error instanceof Error ? error.message : 'Chunked transfer failed',
-          hint: 'Check network connection and retry',
-        };
-        eventEmitter.emit('event', errorEvent);
-
-        this.activeDelegations.delete(delegationId);
-        await this.workspace.release(workPath);
-        return;
-      }
-    }
-
-    // Continue with actual task execution
-    this.executeTask(delegationId, start, workPath, task, lease, environment, eventEmitter);
-  }
-
-  private waitForChunks(delegationId: string): Promise<void> {
-    return new Promise((resolve, reject) => {
-      const timeout = setTimeout(() => {
-        if (this.chunkCompletionResolvers.has(delegationId)) {
-          this.chunkCompletionResolvers.delete(delegationId);
-          reject(new Error('Chunked transfer timeout'));
-        }
-      }, 5 * 60 * 1000); // 5 minute timeout
-
-      this.chunkCompletionResolvers.set(delegationId, {
-        resolve: () => {
-          clearTimeout(timeout);
-          resolve();
-        },
-        reject: (error: Error) => {
-          clearTimeout(timeout);
-          reject(error);
-        },
-      });
-    });
+    this.executeTask(delegationId, start);
   }
 
   private async handleError(error: ErrorMessage): Promise<void> {
@@ -657,41 +571,5 @@ export class ExecutorService implements ExecutorRequestHandler {
       message,
       hint,
     };
-  }
-
-  // ========== Chunked Transfer Methods ==========
-
-  async receiveChunk(delegationId: string, index: number, data: string, checksum: string): Promise<void> {
-    if (this.transport.type !== 'archive') {
-      throw new Error('Chunked transfer only supported for archive transport');
-    }
-
-    const archiveTransport = this.transport as unknown as ArchiveTransport;
-    await archiveTransport.receiveChunk(delegationId, index, data, checksum);
-  }
-
-  async completeChunks(delegationId: string, totalChecksum: string): Promise<void> {
-    if (this.transport.type !== 'archive') {
-      throw new Error('Chunked transfer only supported for archive transport');
-    }
-
-    const archiveTransport = this.transport as unknown as ArchiveTransport;
-    await archiveTransport.completeChunks(delegationId, totalChecksum);
-
-    // Resolve the waiting promise
-    const resolver = this.chunkCompletionResolvers.get(delegationId);
-    if (resolver) {
-      this.chunkCompletionResolvers.delete(delegationId);
-      resolver.resolve();
-    }
-  }
-
-  getChunkStatus(delegationId: string): ChunkStatusResponse {
-    if (this.transport.type !== 'archive') {
-      return { exists: false, received: [], missing: [], complete: false };
-    }
-
-    const archiveTransport = this.transport as unknown as ArchiveTransport;
-    return archiveTransport.getChunkStatus(delegationId);
   }
 }
