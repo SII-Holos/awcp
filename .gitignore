@@ -68,7 +68,8 @@ ref/
 references/
 
 # Non-public directories (kept local only)
-docs/paper/
+docs/paper/*
+!docs/paper/figs/
 docs/paper-temp/
 examples/
 experiments/

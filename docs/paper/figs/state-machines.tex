@@ -1,0 +1,135 @@
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% AWCP Dual State Machines - Delegation (Delegator) and Assignment (Executor)
+%
+% Required: \usepackage{tikz}
+%           \usetikzlibrary{positioning, arrows.meta, fit, backgrounds, calc}
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\begin{figure}[t]
+\centering
+\resizebox{0.88\textwidth}{!}{%
+\begin{tikzpicture}[
+    % === State styles ===
+    state/.style={rectangle, rounded corners=5pt, draw=black!60, thick,
+        fill=white, minimum width=1.8cm, minimum height=0.75cm,
+        font=\small, align=center},
+    init/.style={state, fill=blue!6},
+    terminal/.style={state, fill=black!8, draw=black!40, text=black!65},
+    % === Arrow styles ===
+    trans/.style={-{Stealth[length=2.2mm, width=1.8mm]}, thick, black!65},
+    sync/.style={-{Stealth[length=2.2mm, width=1.8mm]}, thick, blue!55,
+        densely dashed},
+    % === Label styles ===
+    evlabel/.style={font=\scriptsize\ttfamily, fill=white, inner sep=1.5pt,
+        text=black!70},
+    synclabel/.style={font=\scriptsize\itshape, fill=white, inner sep=1.5pt,
+        text=blue!60},
+    fraglabel/.style={font=\small\bfseries, text=black!60},
+    % === Fragment ===
+    fragment/.style={draw=black!20, rounded corners=8pt, fill=black!2}
+]
+
+% === Vertical spacing ===
+\def\ystep{1.55}
+
+%==========================================================================
+% LEFT: DelegationStateMachine (Delegator side)
+%==========================================================================
+
+% Happy-path states — vertical spine
+\node[init]     (d-created)   at (0, 0)              {\texttt{created}};
+\node[state]    (d-invited)   at (0, -1*\ystep)      {\texttt{invited}};
+\node[state]    (d-accepted)  at (0, -2*\ystep)      {\texttt{accepted}};
+\node[state]    (d-started)   at (0, -3*\ystep)      {\texttt{started}};
+\node[state]    (d-running)   at (0, -4*\ystep)      {\texttt{running}};
+\node[terminal] (d-completed) at (0, -5*\ystep)      {\texttt{completed}};
+
+% Happy-path transitions
+\draw[trans] (d-created)  -- node[evlabel, right, xshift=1pt] {SEND\_INVITE}    (d-invited);
+\draw[trans] (d-invited)  -- node[evlabel, right, xshift=1pt] {RECV\_ACCEPT}    (d-accepted);
+\draw[trans] (d-accepted) -- node[evlabel, right, xshift=1pt] {SEND\_START}     (d-started);
+\draw[trans] (d-started)  -- node[evlabel, right, xshift=1pt] {SETUP\_COMPLETE} (d-running);
+\draw[trans] (d-running)  -- node[evlabel, right, xshift=1pt] {RECV\_DONE}      (d-completed);
+
+% Terminal states — grouped to the left, generous vertical spacing
+\node[terminal] (d-error)     at (-2.6, -5*\ystep)       {\texttt{error}};
+\node[terminal] (d-cancelled) at (-2.6, -5*\ystep-1.1)   {\texttt{cancelled}};
+\node[terminal] (d-expired)   at (-2.6, -5*\ystep-2.2)   {\texttt{expired}};
+
+% Single aggregate arrow for exceptional transitions
+\draw[-{Stealth[length=2.2mm, width=1.8mm]}, thick, red!40, dashed]
+    (-1.15, -0.5*\ystep) -- (-1.15, -4.5*\ystep) -- (d-error.north east);
+\node[font=\scriptsize, text=red!45, align=left, anchor=east] 
+    at (-1.25, -2.5*\ystep) {\textit{any non-terminal}};
+
+% Annotation for cancelled/expired
+\node[font=\scriptsize, text=black!40, align=center, anchor=north] 
+    at (-2.6, -5*\ystep-3.1) {via \textsc{error} / \textsc{cancel} / \textsc{expire}};
+
+% Fragment box
+\begin{scope}[on background layer]
+    \draw[fragment] (-4.05, 1.55) rectangle (1.85, -5*\ystep-3.85);
+\end{scope}
+\node[fraglabel] at (-1.1, 1.2) {DelegationStateMachine};
+\node[font=\scriptsize, text=black!40] at (-1.1, 0.8) {(Delegator side)};
+
+%==========================================================================
+% RIGHT: AssignmentStateMachine (Executor side)
+%==========================================================================
+
+% Align sync points: pending at invited level, active at started level,
+% completed at running level
+\def\xr{6.2}
+
+\node[init]     (e-pending)   at (\xr, -1*\ystep)   {\texttt{pending}};
+\node[state]    (e-active)    at (\xr, -3*\ystep)    {\texttt{active}};
+\node[terminal] (e-completed) at (\xr, -5*\ystep)    {\texttt{completed}};
+\node[terminal] (e-error)     at ({\xr+2.2}, -5*\ystep) {\texttt{error}};
+
+% Happy-path transitions
+\draw[trans] (e-pending) -- node[evlabel, left, xshift=-1pt] {RECV\_START} (e-active);
+\draw[trans] (e-active)  -- node[evlabel, left, xshift=-1pt] {TASK\_COMPLETE} (e-completed);
+
+% Error transitions — single aggregate arrow
+\draw[-{Stealth[length=2.2mm, width=1.8mm]}, thick, red!40, dashed]
+    ({\xr+1.15}, -1.5*\ystep) -- ({\xr+1.15}, -4.5*\ystep) -- (e-error.north west);
+\node[font=\scriptsize, text=red!45, align=right, anchor=west]
+    at ({\xr+1.25}, -3*\ystep) {\textit{any non-}\\\textit{terminal}};
+
+% Annotation
+\node[font=\scriptsize, text=black!40, align=center, anchor=north]
+    at ({\xr+2.2}, -5*\ystep-0.7) {via \textsc{error} / \textsc{cancel}};
+
+% Fragment box
+\begin{scope}[on background layer]
+    \draw[fragment] ({\xr-1.75}, 1.55) rectangle ({\xr+3.55}, -5*\ystep-1.4);
+\end{scope}
+\node[fraglabel] at ({\xr+0.9}, 1.2) {AssignmentStateMachine};
+\node[font=\scriptsize, text=black!40] at ({\xr+0.9}, 0.8) {(Executor side)};
+
+%==========================================================================
+% Synchronization arrows (horizontal, between aligned states)
+%==========================================================================
+
+% ACCEPT: Executor sends ACCEPT → Delegator transitions invited→accepted,
+%         Executor creates assignment in pending
+\draw[sync] (d-invited.east) ++(0.15,0) -- 
+    node[synclabel, above] {\textnormal{\texttt{ACCEPT}}} 
+    ([xshift=-0.15cm]e-pending.west);
+
+% START: Delegator sends START → triggers pending→active
+\draw[sync] (d-accepted.east) ++(0.15,0) -- ++(0.6,0) |- 
+    node[synclabel, above, pos=0.75] {\textnormal{\texttt{START}}} 
+    ([xshift=-0.15cm]e-active.west);
+
+% DONE: Executor sends DONE → Delegator transitions running→completed
+\draw[{Stealth[length=2.2mm, width=1.8mm]}-, thick, blue!55, densely dashed] 
+    (d-running.east) ++(0.15,0) -- ++(0.6,0) |- 
+    node[synclabel, above, pos=0.75] {\textnormal{\texttt{DONE}}} 
+    ([xshift=-0.15cm]e-completed.west);
+
+\end{tikzpicture}%
+}
+\caption{Dual state machines governing the AWCP delegation lifecycle. The \textit{DelegationStateMachine}~(left) tracks nine states on the Delegator side; the \textit{AssignmentStateMachine}~(right) tracks four states on the Executor side. Solid arrows trace the happy path; a single dashed red path indicates that any non-terminal state may transition to a terminal state upon error, cancellation, or lease expiration. Blue dashed arrows mark cross-machine synchronization via protocol messages.}
+\label{fig:state-machines}
+\end{figure}
