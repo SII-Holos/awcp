@@ -1,0 +1,126 @@
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% AWCP Protocol Sequence Diagram - Professional UML 2.0 Style
+% 
+% Required: \usepackage{tikz}
+%           \usetikzlibrary{positioning, arrows.meta, fit, backgrounds, calc}
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\begin{figure}[!htb]
+\centering
+\resizebox{0.6\textwidth}{!}{%
+\begin{tikzpicture}[
+    % === Core styles ===
+    participant/.style={rectangle, draw=black, thick, fill=white,
+        minimum width=2.2cm, minimum height=0.7cm, font=\small\bfseries},
+    lifeline/.style={dashed, gray!60},
+    % === Message arrows ===
+    msg/.style={-{Stealth[length=2mm, width=1.5mm]}, thick},
+    ret/.style={-{Stealth[length=2mm, width=1.5mm]}, thick, dashed},
+    sse/.style={-{Stealth[length=2mm, width=1.5mm]}, thick, blue!70},
+    % === Labels ===
+    mlabel/.style={font=\scriptsize\ttfamily, fill=white, inner sep=1.5pt},
+    plabel/.style={font=\scriptsize\itshape, text=black!70},
+    % === Fragment (UML combined fragment) ===
+    fragment/.style={draw=black!60, fill=white},
+    fraglabel/.style={font=\scriptsize\bfseries, fill=black!10, draw=black!60, 
+        inner sep=2pt, anchor=north west}
+]
+
+% ========== Participants ==========
+\node[participant] (D) at (0, 0) {Delegator};
+\node[participant] (E) at (6, 0) {Executor};
+
+% ========== Lifelines ==========
+\draw[lifeline] (0, -0.35) -- (0, -13.02);
+\draw[lifeline] (6, -0.35) -- (6, -13.02);
+
+%==========================================================================
+% PHASE 1: Negotiation
+%==========================================================================
+\begin{scope}[on background layer]
+  \draw[fragment] (-1.2, -0.6) rectangle (7.2, -2.8);
+\end{scope}
+\node[fraglabel] at (-1.2, -0.6) {Negotiation};
+
+% INVITE
+\draw[msg] (0, -1.2) -- node[mlabel, above] {INVITE} (6, -1.2);
+\node[plabel] at (3, -1.5) {task, lease, environment};
+
+% ACCEPT (response)
+\draw[ret] (6, -2.2) -- node[mlabel, above] {ACCEPT} (0, -2.2);
+\node[plabel] at (3, -2.5) {workDir, constraints};
+
+%==========================================================================
+% PHASE 2: Provisioning  
+%==========================================================================
+\begin{scope}[on background layer]
+  \draw[fragment] (-1.2, -3.0) rectangle (7.2, -5.8);
+\end{scope}
+\node[fraglabel] at (-1.2, -3.0) {Provisioning};
+
+% Self-call: Prepare Transport (proper UML self-message)
+\draw[msg] (0, -3.6) -- ++(0.8, 0) -- ++(0, -0.3) -- ++(-0.8, 0);
+\node[mlabel, anchor=west] at (0.9, -3.7) {Prepare Transport};
+
+% START
+\draw[msg] (0, -4.5) -- node[mlabel, above] {START} (6, -4.5);
+\node[plabel] at (3, -4.8) {lease, workDir (credentials)};
+
+% {ok} response
+\draw[ret] (6, -5.5) -- node[mlabel, above] {\{ok: true\}} (0, -5.5);
+
+%==========================================================================
+% PHASE 3: Execution (SSE Stream)
+%==========================================================================
+\begin{scope}[on background layer]
+  \draw[fragment] (-1.2, -6.0) rectangle (7.2, -11.1);
+\end{scope}
+\node[fraglabel] at (-1.2, -6.0) {Execution};
+
+% Self-call: Setup Workspace
+\draw[msg] (6, -6.3) -- ++(-0.8, 0) -- ++(0, -0.3) -- ++(0.8, 0);
+\node[mlabel, anchor=east] at (5.1, -6.4) {Setup Workspace};
+
+% SSE subscription
+\draw[sse] (0, -7.2) -- node[mlabel, above] {SSE: /tasks/:taskId/events} (6, -7.2);
+
+% status event
+\draw[sse] (6, -7.9) -- node[mlabel, above] {event: status} (0, -7.9);
+\node[plabel] at (3, -8.2) {running};
+
+% Self-call: Execute Task
+\draw[msg] (6, -8.7) -- ++(-0.8, 0) -- ++(0, -0.3) -- ++(0.8, 0);
+\node[mlabel, anchor=east] at (5.1, -8.8) {Execute Task};
+
+% Self-call: Teardown
+\draw[msg] (6, -9.5) -- ++(-0.8, 0) -- ++(0, -0.3) -- ++(0.8, 0);
+\node[mlabel, anchor=east] at (5.1, -9.6) {Teardown};
+
+% snapshot event
+\draw[sse] (6, -10.2) -- node[mlabel, above] {event: snapshot} (0, -10.2);
+\node[plabel] at (3, -10.5) {snapshotId, data, recommended};
+
+% done event
+\draw[sse] (6, -10.9) -- node[mlabel, above] {event: done} (0, -10.9);
+
+%==========================================================================
+% PHASE 4: Completion
+%==========================================================================
+\begin{scope}[on background layer]
+  \draw[fragment] (-1.2, -11.3) rectangle (7.2, -13.0);
+\end{scope}
+\node[fraglabel] at (-1.2, -11.3) {Completion};
+
+% Self-call: Apply Snapshot
+\draw[msg] (0, -11.9) -- ++(0.8, 0) -- ++(0, -0.3) -- ++(-0.8, 0);
+\node[mlabel, anchor=west] at (0.9, -12.0) {Apply Snapshot};
+
+% ACK
+\draw[msg] (0, -12.7) -- node[mlabel, above] {ACK} (6, -12.7);
+
+\end{tikzpicture}%
+}
+\caption{AWCP four-phase message sequence between Delegator and Executor.
+Solid, dashed, and blue arrows denote synchronous HTTP requests, responses, and asynchronous SSE events, respectively.}
+\label{fig:awcp-protocol}
+\end{figure}

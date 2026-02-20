@@ -1,0 +1,101 @@
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% AWCP Protocol Landscape - Relationship with MCP, A2A, and other protocols
+%
+% Required: \usepackage{tikz}
+%           \usetikzlibrary{positioning, arrows.meta, fit, backgrounds, calc}
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\begin{figure}[t]
+\centering
+\resizebox{0.92\textwidth}{!}{%
+\begin{tikzpicture}[
+    % === Node styles ===
+    agent/.style={rectangle, rounded corners=6pt, draw=black!35, thick,
+        fill=green!5, minimum width=2.0cm, minimum height=1.3cm,
+        font=\small\bfseries, align=center},
+    svc/.style={rectangle, rounded corners=5pt, draw=black!45, thick,
+        fill=blue!6, minimum width=2.6cm, minimum height=1.3cm,
+        font=\small\bfseries, align=center},
+    pill/.style={rectangle, rounded corners=3pt, draw=black!20,
+        inner sep=4pt, font=\scriptsize\bfseries, text=black!65},
+    % === Arrow styles ===
+    arr/.style={-{Stealth[length=2.5mm, width=2mm]}, thick, black!55},
+    % === Label styles ===
+    desc/.style={font=\scriptsize, text=black!40, align=center}
+]
+
+% =====================================================================
+% Left column: User + Delegator Agent
+% =====================================================================
+\node[agent, fill=yellow!6, draw=black!30] (user) at (0, 0.4) {User};
+\node[agent] (dagent) at (0, -2.0) {Delegator\\Agent};
+\draw[arr] (user) -- (dagent);
+
+% =====================================================================
+% Center: AWCP boundary
+% =====================================================================
+
+% --- Services ---
+\node[svc] (dserv) at (6.2, -0.2) {Delegator\\Service};
+\node[svc] (eserv) at (11.4, -0.2) {Executor\\Service};
+
+% --- Control plane: bidirectional HTTP/SSE between services ---
+\draw[{Stealth[length=2.5mm, width=2mm]}-{Stealth[length=2.5mm, width=2mm]},
+    thick, black!40, densely dashed] (dserv.east) -- (eserv.west);
+\node[desc] at (8.8, 0.25) {HTTP / SSE};
+
+% --- Transport plane (below services) ---
+\node[pill, fill=orange!10, draw=orange!30, text=orange!70!black]
+    (trans) at (8.8, -2.2)
+    {SSHFS~~$\vert$~~Archive~~$\vert$~~Storage~~$\vert$~~Git};
+\node[desc] at (8.8, -2.75) {Workspace Transport};
+% --- Transport connection: bus-style vertical stubs + horizontal bar ---
+\coordinate (busY) at (0, -1.25);  % y-level of horizontal bus
+\draw[orange!55, line width=1pt]
+    (dserv.south) -- (dserv.south |- busY);
+\draw[orange!55, line width=1pt]
+    (eserv.south) -- (eserv.south |- busY);
+\draw[orange!55, line width=1pt]
+    (dserv.south |- busY) -- (eserv.south |- busY);
+\draw[arr, orange!55, line width=1pt]
+    (8.8, -1.25) -- (trans.north);
+
+% --- AWCP boundary box (enlarged, label outside) ---
+\begin{scope}[on background layer]
+    \draw[rounded corners=10pt, draw=orange!40, thick,
+        fill=orange!3, densely dashed]
+        (4.3, 1.2) rectangle (13.3, -3.3);
+\end{scope}
+\node[font=\footnotesize\bfseries, text=orange!60!black, anchor=south west]
+    at (4.45, 1.25) {AWCP};
+
+% =====================================================================
+% Right column: Executor Agent
+% =====================================================================
+\node[agent] (eagent) at (17.6, -2.0) {Executor\\Agent};
+
+% =====================================================================
+% Connections: Agents ↔ AWCP services
+% =====================================================================
+
+% --- Delegator Agent → Delegator Service ---
+\draw[arr] (dagent.east) -- ++(1.6, 0) |- (dserv.west);
+
+% Integration pill: positioned in the gap, clearly left of AWCP border
+\node[pill, fill=purple!6] at (2.5, -1.2)
+    {MCP~~$\vert$~~Skill~~$\vert$~~Tools};
+\node[desc] at (2.5, -1.7) {Integration Interfaces};
+
+% --- Executor Service → Executor Agent ---
+\draw[arr] (eserv.east) -- ++(1.6, 0) |- (eagent.west);
+
+% Adapter pill: positioned in the gap, clearly right of AWCP border
+\node[pill, fill=purple!6] at (15.1, -1.2)
+    {A2A~~$\vert$~~ANP~~$\vert$~~HTTP};
+\node[desc] at (15.1, -1.7) {Adapter Layer};
+
+\end{tikzpicture}%
+}
+\caption{AWCP in the agentic protocol landscape. Delegator agents access AWCP through integration interfaces such as MCP tool servers or skill modules. The control plane uses standard HTTP and Server-Sent Events for signaling between AWCP services. Executor agents are invoked through an extensible adapter layer supporting A2A, ANP, or direct HTTP. The transport plane provides pluggable filesystem-level access that complements message-level coordination.}
+\label{fig:protocol-landscape}
+\end{figure}
