@@ -14,7 +14,7 @@ MCP lets agents call tools. A2A lets agents exchange messages. But **neither let
 
 AWCP fills this gap. A Delegator agent projects its workspace—files, directories, build systems, version history—to a remote Executor, who operates on it with native toolchains as if everything were local. No file copying, no payload serialization, no environment reconstruction.
 
-> 📄 **Paper**: _"AWCP: A Workspace Delegation Protocol for Deep-Engagement Collaboration across Remote Agents"_ — [Read the preprint](docs/paper/)
+> 📄 **Paper**: _"AWCP: A Workspace Delegation Protocol for Deep-Engagement Collaboration across Remote Agents"_ — [Read on arXiv](https://arxiv.org/abs/2602.20493)
 
 <br>
 
@@ -263,10 +263,11 @@ We welcome contributions — additional transports, language bindings (Python, G
 If you use AWCP in your research, please cite:
 
 ```bibtex
-@article{nie2025awcp,
+@article{nie2026awcp,
   title={AWCP: A Workspace Delegation Protocol for Deep-Engagement Collaboration across Remote Agents},
   author={Nie, Xiaohang and Guo, Zihan and Chen, Youliang and Zhou, Yuanjian and Zhang, Weinan},
-  year={2025}
+  journal={arXiv preprint arXiv:2602.20493},
+  year={2026}
 }
 ```
 

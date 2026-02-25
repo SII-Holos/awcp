@@ -1,0 +1,22 @@
+cff-version: 1.2.0
+title: "AWCP: A Workspace Delegation Protocol for Deep-Engagement Collaboration across Remote Agents"
+message: "If you use this software, please cite it as below."
+type: software
+authors:
+  - family-names: Nie
+    given-names: Xiaohang
+  - family-names: Guo
+    given-names: Zihan
+  - family-names: Chen
+    given-names: Youliang
+  - family-names: Zhou
+    given-names: Yuanjian
+  - family-names: Zhang
+    given-names: Weinan
+identifiers:
+  - type: url
+    value: "https://arxiv.org/abs/2602.20493"
+    description: arXiv preprint
+repository-code: "https://github.com/SII-Holos/awcp"
+license: Apache-2.0
+date-released: "2026-02-24"
