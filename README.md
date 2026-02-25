@@ -14,7 +14,7 @@ MCP lets agents call tools. A2A lets agents exchange messages. But **neither let
 
 AWCP fills this gap. A Delegator agent projects its workspace—files, directories, build systems, version history—to a remote Executor, who operates on it with native toolchains as if everything were local. No file copying, no payload serialization, no environment reconstruction.
 
-> 📄 **Paper**: _"AWCP: A Workspace Delegation Protocol for Deep-Engagement Collaboration across Remote Agents"_ — [Read the preprint](docs/paper/)
+> 📄 **Paper**: _"AWCP: A Workspace Delegation Protocol for Deep-Engagement Collaboration across Remote Agents"_ — [Read on arXiv](https://arxiv.org/abs/2602.20493)
 
 <br>
 
@@ -204,7 +204,7 @@ app.listen(10200);
 
 ## Packages
 
-The implementation is a TypeScript monorepo (~9,200 lines of source, ~2,600 lines of tests):
+The implementation is a TypeScript monorepo (~8,500 lines of source, ~2,600 lines of tests):
 
 | Package                                                 | Role                | Description                                                       |
 | ------------------------------------------------------- | ------------------- | ----------------------------------------------------------------- |
@@ -218,27 +218,6 @@ The implementation is a TypeScript monorepo (~9,200 lines of source, ~2,600 line
 
 <br>
 
-## Running the Examples
-
-```bash
-git clone https://github.com/SII-Holos/awcp.git
-cd awcp && npm install && npm run build
-
-# Basic local delegation
-cd experiments/scenarios/01-local-basic && ./run.sh
-
-# Admission control (workspace size limits)
-cd experiments/scenarios/02-admission-test && ./run.sh
-
-# MCP integration with Claude Desktop
-cd experiments/scenarios/03-mcp-integration && ./run.sh
-
-# Archive transport over HTTP
-cd experiments/scenarios/04-archive-transport && ./run.sh
-```
-
-See [examples/](examples/) for complete Executor implementations including [Synergy](examples/synergy-executor), [OpenClaw](examples/openclaw-executor), and [Vision](examples/vision-executor) integrations.
-
 ## Requirements
 
 - **Node.js** ≥ 18
@@ -249,10 +228,29 @@ See [examples/](examples/) for complete Executor implementations including [Syne
 
 | Resource                                      | Description                                                        |
 | --------------------------------------------- | ------------------------------------------------------------------ |
-| [Protocol Specification](docs/v1.md)          | Complete protocol design, message formats, and lifecycle semantics |
 | [Architecture Diagrams](docs/architecture.md) | Visual overview of system components and data flow                 |
 | [MCP Tools Reference](packages/mcp/README.md) | Configuration and usage for Claude Desktop / Cline                 |
 | [Development Guide](AGENTS.md)                | Architecture decisions and contribution guidelines                 |
+
+## Roadmap
+
+**Near-term**
+
+- [ ] Executor adapter expansion — add a raw AWCP message adapter so any HTTP server can participate without an A2A dependency
+- [ ] Redesigned examples and getting-started scenarios
+- [ ] Complete the `delegate_recover` MCP tool (currently a stub)
+
+**Mid-term**
+
+- [ ] Python SDK implementation
+- [ ] Security hardening — executor-side auth validation, lease expiration enforcement, sandbox profiles
+- [ ] S3 storage provider for the Storage transport (currently local-only)
+
+**Long-term**
+
+- [ ] CRDT-based conflict resolution for concurrent workspace access
+- [ ] Multi-agent coalitions — federated delegations across partitioned workspaces
+- [ ] Dynamic executor discovery and capability advertisement
 
 ## Contributing
 
@@ -263,10 +261,11 @@ We welcome contributions — additional transports, language bindings (Python, G
 If you use AWCP in your research, please cite:
 
 ```bibtex
-@article{nie2025awcp,
+@article{nie2026awcp,
   title={AWCP: A Workspace Delegation Protocol for Deep-Engagement Collaboration across Remote Agents},
   author={Nie, Xiaohang and Guo, Zihan and Chen, Youliang and Zhou, Yuanjian and Zhang, Weinan},
-  year={2025}
+  journal={arXiv preprint arXiv:2602.20493},
+  year={2026}
 }
 ```
 
