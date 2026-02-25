@@ -67,6 +67,5 @@ cd packages/core && npm test               # Single package
 
 ## Useful Links
 
-- [Protocol Specification](docs/v1.md)
 - [Architecture Diagrams](docs/architecture.md)
 - [MCP Tools Reference](packages/mcp/README.md)
