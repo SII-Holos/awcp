@@ -116,9 +116,9 @@ An OpenClaw agent on Feishu delegates contract stamping to a Compliance Auditor.
 
 ## Quick Start
 
-### For Claude Desktop / Cline Users
+### For MCP-Compatible Agents
 
-Add AWCP as an MCP server to start delegating workspaces immediately:
+Add AWCP as an MCP server in any compatible client (Claude Desktop, Claude Code, Cursor, Cline, etc.) to start delegating workspaces immediately:
 
 ```json
 {
@@ -229,7 +229,7 @@ The implementation is a TypeScript monorepo (~8,500 lines of source, ~2,600 line
 | Resource                                      | Description                                                        |
 | --------------------------------------------- | ------------------------------------------------------------------ |
 | [Architecture Diagrams](docs/architecture.md) | Visual overview of system components and data flow                 |
-| [MCP Tools Reference](packages/mcp/README.md) | Configuration and usage for Claude Desktop / Cline                 |
+| [MCP Tools Reference](packages/mcp/README.md) | Configuration and usage for MCP-compatible agents                  |
 | [Development Guide](AGENTS.md)                | Architecture decisions and contribution guidelines                 |
 
 ## Roadmap
