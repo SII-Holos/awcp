@@ -165,10 +165,19 @@ export class DelegatorService implements DelegatorRequestHandler {
           ` (known=[${Array.from(this.delegations.keys()).join(',')}])`
         );
       }
+
       if (isTerminalState(existing.state)) {
-        throw new Error(
-          `Cannot resume terminal delegation: ${delegationId} (state=${existing.state})`
+        console.log(
+          `[AWCP:Delegator] Re-delegating from terminal state ${delegationId} (was ${existing.state})`
         );
+        existing.result = undefined;
+        existing.error = undefined;
+        existing.activeLease = undefined;
+        existing.executorWorkDir = undefined;
+        existing.executorConstraints = undefined;
+        existing.executorRetentionMs = undefined;
+        existing.snapshots = undefined;
+        existing.appliedSnapshotId = undefined;
       }
 
       await this.transport.detach(delegationId).catch(() => {});
