@@ -114,6 +114,48 @@ export class DelegatorDaemonClient {
     await this.request(`/delegation/${delegationId}`, { method: 'DELETE' });
   }
 
+  async continueDelegation(delegationId: string, task: TaskSpec): Promise<void> {
+    await this.request(`/delegation/${delegationId}/continue`, {
+      method: 'POST',
+      body: { task },
+    });
+  }
+
+  async closeDelegation(delegationId: string): Promise<void> {
+    await this.request(`/delegation/${delegationId}/close`, {
+      method: 'POST',
+    });
+  }
+
+  /**
+   * Wait for a delegation to reach idle state (round complete) or terminal state.
+   * Used by delegate_continue to wait for the current round to finish.
+   */
+  async waitForIdle(
+    delegationId: string,
+    pollIntervalMs: number = 1000,
+    timeoutMs: number = 60000
+  ): Promise<Delegation> {
+    const startTime = Date.now();
+
+    while (Date.now() - startTime < timeoutMs) {
+      const delegation = await this.getDelegation(delegationId);
+
+      if (
+        delegation.state === 'idle' ||
+        delegation.state === 'completed' ||
+        delegation.state === 'error' ||
+        delegation.state === 'cancelled'
+      ) {
+        return delegation;
+      }
+
+      await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
+    }
+
+    throw new Error(`Timeout waiting for delegation ${delegationId} to reach idle state`);
+  }
+
   /**
    * Wait for a delegation to complete
    */

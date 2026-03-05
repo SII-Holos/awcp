@@ -11,6 +11,7 @@ import type {
   EnvironmentSpec,
   TaskSpec,
   AuthCredential,
+  Round,
 } from '@awcp/core';
 
 // ========== Admission ==========
@@ -56,6 +57,13 @@ export interface DelegateParams {
   auth?: AuthCredential;
 }
 
+// ========== Continue Params ==========
+
+export interface ContinueParams {
+  delegationId: string;
+  task: TaskSpec;
+}
+
 // ========== Hooks ==========
 
 export interface DelegatorHooks {
@@ -63,6 +71,7 @@ export interface DelegatorHooks {
   onDelegationCreated?: (delegation: Delegation) => void;
   onDelegationStarted?: (delegation: Delegation) => void;
   onDelegationCompleted?: (delegation: Delegation) => void;
+  onRoundCompleted?: (delegation: Delegation, round: Round) => void;
   onSnapshotReceived?: (delegation: Delegation, snapshot: EnvironmentSnapshot) => void;
   onSnapshotApplied?: (delegation: Delegation, snapshot: EnvironmentSnapshot) => void;
   onError?: (delegationId: string, error: Error) => void;

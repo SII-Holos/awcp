@@ -7,6 +7,8 @@
  * - delegate: Initiate a workspace delegation
  * - delegate_output: Get delegation status/results
  * - delegate_cancel: Cancel active delegations
+ * - delegate_continue: Send new instructions to an idle delegation (multi-round)
+ * - delegate_close: End a multi-round delegation session
  * - delegate_snapshots: List snapshots for a delegation
  * - delegate_apply_snapshot: Apply a staged snapshot
  * - delegate_discard_snapshot: Discard a staged snapshot
@@ -53,6 +55,16 @@ import {
   delegateRecoverDescription,
   type DelegateRecoverParams,
 } from './tools/delegate-recover.js';
+import {
+  delegateContinueSchema,
+  delegateContinueDescription,
+  type DelegateContinueParams,
+} from './tools/delegate-continue.js';
+import {
+  delegateCloseSchema,
+  delegateCloseDescription,
+  type DelegateCloseParams,
+} from './tools/delegate-close.js';
 import { type PeersContext } from './peer-discovery.js';
 
 export interface AwcpMcpServerOptions {
@@ -395,6 +407,93 @@ Use \`delegate_output(delegation_id="${delegationId}")\` to check progress or re
     }
   );
 
+  // ============================================
+  // Tool: delegate_continue
+  // ============================================
+  server.tool(
+    'delegate_continue',
+    delegateContinueDescription,
+    delegateContinueSchema.shape,
+    async (params: DelegateContinueParams) => {
+      const { delegation_id, description, prompt, background } = params;
+
+      try {
+        await client.continueDelegation(delegation_id, { description, prompt });
+
+        if (background) {
+          return {
+            content: [{
+              type: 'text' as const,
+              text: `Continuation round started in background.
+
+Delegation ID: ${delegation_id}
+Task: ${description}
+Status: running
+
+Use \`delegate_output(delegation_id="${delegation_id}")\` to check progress.`,
+            }],
+          };
+        }
+
+        const delegation = await client.waitForIdle(delegation_id, 2000, 3600000);
+
+        if (delegation.state === 'idle') {
+          return {
+            content: [{
+              type: 'text' as const,
+              text: formatRoundResult(delegation),
+            }],
+          };
+        }
+
+        return {
+          content: [{
+            type: 'text' as const,
+            text: formatDelegationResult(delegation),
+          }],
+        };
+      } catch (error) {
+        return {
+          content: [{
+            type: 'text' as const,
+            text: `Continue failed: ${error instanceof Error ? error.message : String(error)}`,
+          }],
+          isError: true,
+        };
+      }
+    }
+  );
+
+  // ============================================
+  // Tool: delegate_close
+  // ============================================
+  server.tool(
+    'delegate_close',
+    delegateCloseDescription,
+    delegateCloseSchema.shape,
+    async (params: DelegateCloseParams) => {
+      const { delegation_id } = params;
+
+      try {
+        await client.closeDelegation(delegation_id);
+        return {
+          content: [{
+            type: 'text' as const,
+            text: `Delegation ${delegation_id} closed. Workspace and transport cleaned up.`,
+          }],
+        };
+      } catch (error) {
+        return {
+          content: [{
+            type: 'text' as const,
+            text: `Close failed: ${error instanceof Error ? error.message : String(error)}`,
+          }],
+          isError: true,
+        };
+      }
+    }
+  );
+
   return server;
 }
 
@@ -436,7 +535,33 @@ function isTerminalState(state: string): boolean {
 }
 
 function isRunning(delegation: Delegation): boolean {
-  return !isTerminalState(delegation.state);
+  return !isTerminalState(delegation.state) && delegation.state !== 'idle';
+}
+
+function formatRoundResult(delegation: Delegation): string {
+  const lastRound = delegation.rounds?.[delegation.rounds.length - 1];
+  const lines: string[] = [
+    `Delegation: ${delegation.id}`,
+    `Status: idle (round ${delegation.currentRound} complete)`,
+  ];
+
+  if (lastRound?.result) {
+    lines.push('', '--- Round Result ---', lastRound.result.summary);
+    if (lastRound.result.highlights?.length) {
+      lines.push('', 'Highlights:', ...lastRound.result.highlights.map(h => `  - ${h}`));
+    }
+  }
+
+  const pendingSnapshots = delegation.snapshots?.filter(s => s.status === 'pending') ?? [];
+  if (pendingSnapshots.length > 0) {
+    lines.push('', `${pendingSnapshots.length} pending snapshot(s) - use delegate_snapshots to review`);
+  }
+
+  lines.push('', 'Next steps:');
+  lines.push(`  - delegate_continue(delegation_id="${delegation.id}", ...) to iterate further`);
+  lines.push(`  - delegate_close(delegation_id="${delegation.id}") to end the session`);
+
+  return lines.join('\n');
 }
 
 function formatBytes(bytes: number | undefined): string {
@@ -452,10 +577,22 @@ function formatDelegationResult(delegation: Delegation): string {
     `Status: ${delegation.state}`,
   ];
 
+  if (delegation.rounds?.length > 1) {
+    lines.push(`Rounds completed: ${delegation.rounds.length}`);
+  }
+
   if (delegation.state === 'completed' && delegation.result) {
     lines.push('', '--- Result ---', delegation.result.summary);
     if (delegation.result.highlights?.length) {
       lines.push('', 'Highlights:', ...delegation.result.highlights.map((h: string) => `  - ${h}`));
+    }
+
+    if (delegation.rounds?.length > 1) {
+      lines.push('', '--- Round History ---');
+      for (const round of delegation.rounds) {
+        const roundResult = round.result?.summary ?? '(no result)';
+        lines.push(`  Round ${round.number}: ${roundResult}`);
+      }
     }
 
     const pendingSnapshots = delegation.snapshots?.filter(s => s.status === 'pending') ?? [];
@@ -484,6 +621,10 @@ function formatDelegationStatus(delegation: Delegation): string {
     `Created: ${delegation.createdAt}`,
   ];
 
+  if (delegation.currentRound > 1 || delegation.state === 'idle') {
+    lines.push(`Current round: ${delegation.currentRound}`);
+  }
+
   if (delegation.snapshotPolicy) {
     lines.push(`Snapshot mode: ${delegation.snapshotPolicy.mode}`);
   }
@@ -495,7 +636,19 @@ function formatDelegationStatus(delegation: Delegation): string {
     lines.push(`Snapshots: ${delegation.snapshots.length} total (${applied} applied, ${pending} pending, ${discarded} discarded)`);
   }
 
-  if (isRunning(delegation)) {
+  if (delegation.state === 'idle') {
+    const lastRound = delegation.rounds?.[delegation.rounds.length - 1];
+    lines.push('', 'Round complete — delegation is idle, awaiting next action.');
+    if (lastRound?.result) {
+      lines.push('', `--- Round ${lastRound.number} Result ---`, lastRound.result.summary);
+      if (lastRound.result.highlights?.length) {
+        lines.push('', 'Highlights:', ...lastRound.result.highlights.map(h => `  - ${h}`));
+      }
+    }
+    lines.push('', 'Next steps:');
+    lines.push(`  - delegate_continue(delegation_id="${delegation.id}", ...) to start another round`);
+    lines.push(`  - delegate_close(delegation_id="${delegation.id}") to end the session`);
+  } else if (isRunning(delegation)) {
     lines.push('', 'Task is still running...');
   } else if (delegation.state === 'completed') {
     if (delegation.result) {
@@ -518,6 +671,15 @@ function formatDelegationStatus(delegation: Delegation): string {
     }
   } else if (delegation.state === 'cancelled') {
     lines.push('', 'Delegation was cancelled.');
+  }
+
+  if (delegation.rounds?.length > 1) {
+    lines.push('', '--- Round History ---');
+    for (const round of delegation.rounds) {
+      const status = round.completedAt ? 'done' : 'in progress';
+      const result = round.result?.summary ?? `(${status})`;
+      lines.push(`  Round ${round.number}: ${result}`);
+    }
   }
 
   return lines.join('\n');

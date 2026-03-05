@@ -52,8 +52,9 @@ export class SshfsDelegatorTransport implements DelegatorTransportAdapter {
     return handle;
   }
 
-  async detach(delegationId: string): Promise<void> {
-    await this.credentialManager.revokeCredential(delegationId);
+  async detach(_delegationId: string): Promise<void> {
+    // No-op: credentials stay alive between rounds for multi-round sessions.
+    // Only release() revokes credentials (final cleanup).
   }
 
   async release(delegationId: string): Promise<void> {

@@ -107,8 +107,9 @@ export class StorageExecutorTransport implements ExecutorTransportAdapter {
     }
   }
 
-  async detach(params: TransportReleaseParams): Promise<void> {
-    this.activeHandles.delete(params.delegationId);
+  async detach(_params: TransportReleaseParams): Promise<void> {
+    // No-op: handle stays alive between rounds for multi-round sessions.
+    // Only release() clears the handle (final cleanup).
   }
 
   async release(params: TransportReleaseParams): Promise<void> {

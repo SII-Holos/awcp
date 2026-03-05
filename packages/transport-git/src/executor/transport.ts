@@ -117,8 +117,9 @@ export class GitExecutorTransport implements ExecutorTransportAdapter {
   }
 
   async detach(params: TransportReleaseParams): Promise<void> {
+    // Clean up auth tokens but keep activeSetups for multi-round sessions.
+    // Only release() deletes the setup entry (final cleanup).
     await cleanupAuth(params.localPath).catch(() => {});
-    this.activeSetups.delete(params.delegationId);
   }
 
   async release(params: TransportReleaseParams): Promise<void> {

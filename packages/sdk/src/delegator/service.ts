@@ -13,9 +13,12 @@ import {
   type AcceptMessage,
   type DoneMessage,
   type ErrorMessage,
+  type ContinueMessage,
+  type CloseMessage,
   type DelegatorTransportAdapter,
   type TaskEvent,
   type TaskSnapshotEvent,
+  type TaskRoundDoneEvent,
   type EnvironmentSnapshot,
   type EnvironmentSpec,
   DelegationStateMachine,
@@ -28,7 +31,7 @@ import {
   WorkspaceNotFoundError,
   WorkspaceInvalidError,
 } from '@awcp/core';
-import { type DelegatorConfig, type ResolvedDelegatorConfig, type DelegateParams, resolveDelegatorConfig } from './config.js';
+import { type DelegatorConfig, type ResolvedDelegatorConfig, type DelegateParams, type ContinueParams, resolveDelegatorConfig } from './config.js';
 import { AdmissionController } from './admission.js';
 import { DelegationManager } from './delegation-manager.js';
 import { EnvironmentManager } from './environment-manager.js';
@@ -50,6 +53,8 @@ export interface DelegatorServiceStatus {
 
 export interface DelegatorRequestHandler {
   delegate(params: DelegateParams): Promise<string>;
+  continue(params: ContinueParams): Promise<void>;
+  close(delegationId: string): Promise<void>;
   cancel(delegationId: string): Promise<void>;
   getDelegation(delegationId: string): Delegation | undefined;
   getStatus(): DelegatorServiceStatus;
@@ -69,6 +74,7 @@ export class DelegatorService implements DelegatorRequestHandler {
   private executorClient: ExecutorClient;
   private delegations = new Map<string, Delegation>();
   private stateMachines = new Map<string, DelegationStateMachine>();
+  private activeStreams = new Map<string, TaskEventStream>();
   private cleanupTimer?: ReturnType<typeof setInterval>;
 
   constructor(options: DelegatorServiceOptions) {
@@ -147,6 +153,11 @@ export class DelegatorService implements DelegatorRequestHandler {
       this.cleanupTimer = undefined;
     }
 
+    for (const stream of this.activeStreams.values()) {
+      stream.abort();
+    }
+    this.activeStreams.clear();
+
     await this.transport.shutdown?.();
 
     this.delegations.clear();
@@ -196,6 +207,12 @@ export class DelegatorService implements DelegatorRequestHandler {
         const delegation = this.delegations.get(delegationId)!;
         delegation.state = 'created';
         delegation.exportPath = envRoot;
+        delegation.currentRound = 1;
+        delegation.rounds = [{
+          number: 1,
+          task: params.task,
+          startedAt: new Date().toISOString(),
+        }];
       } else {
         const delegation = createDelegation({
           id: delegationId,
@@ -308,6 +325,7 @@ export class DelegatorService implements DelegatorRequestHandler {
       };
 
       stream = await this.executorClient.connectTaskEvents(delegation.peerUrl, delegation.id);
+      this.activeStreams.set(delegation.id, stream);
 
       this.transitionState(delegation.id, { type: 'SEND_START', message: startMessage });
       delegation.activeLease = startMessage.lease;
@@ -348,12 +366,129 @@ export class DelegatorService implements DelegatorRequestHandler {
       summary: message.finalSummary,
       highlights: message.highlights,
     };
+
+    const currentRound = delegation.rounds[delegation.rounds.length - 1];
+    if (currentRound && !currentRound.completedAt) {
+      currentRound.completedAt = new Date().toISOString();
+      currentRound.result = delegation.result;
+    }
+
     await this.persistDelegation(delegation.id);
 
+    this.activeStreams.delete(delegation.id);
     await this.transport.detach(delegation.id).catch(() => {});
     await this.environmentManager.release(delegation.id);
 
     this.config.hooks.onDelegationCompleted?.(delegation);
+  }
+
+  private async handleRoundDone(delegationId: string, event: TaskRoundDoneEvent): Promise<void> {
+    const delegation = this.delegations.get(delegationId);
+    if (!delegation) return;
+
+    this.transitionState(delegationId, { type: 'ROUND_COMPLETE' });
+
+    const currentRound = delegation.rounds[delegation.rounds.length - 1];
+    if (currentRound) {
+      currentRound.completedAt = new Date().toISOString();
+      currentRound.result = {
+        summary: event.summary,
+        highlights: event.highlights,
+      };
+    }
+
+    delegation.result = {
+      summary: event.summary,
+      highlights: event.highlights,
+    };
+
+    await this.persistDelegation(delegationId);
+
+    this.config.hooks.onRoundCompleted?.(delegation, currentRound ?? {
+      number: event.round,
+      task: delegation.task,
+      startedAt: delegation.createdAt,
+      completedAt: new Date().toISOString(),
+      result: { summary: event.summary, highlights: event.highlights },
+    });
+  }
+
+  async continue(params: ContinueParams): Promise<void> {
+    const delegation = this.delegations.get(params.delegationId);
+    if (!delegation) {
+      throw new Error(`Unknown delegation: ${params.delegationId}`);
+    }
+
+    const sm = this.stateMachines.get(params.delegationId)!;
+    if (sm.getState() !== 'idle') {
+      throw new Error(
+        `Cannot continue delegation ${params.delegationId} in state '${sm.getState()}', expected 'idle'`
+      );
+    }
+
+    const round = delegation.currentRound + 1;
+    delegation.currentRound = round;
+    delegation.rounds.push({
+      number: round,
+      task: params.task,
+      startedAt: new Date().toISOString(),
+    });
+
+    const continueMessage: ContinueMessage = {
+      version: PROTOCOL_VERSION,
+      type: 'CONTINUE',
+      delegationId: params.delegationId,
+      task: params.task,
+      round,
+    };
+
+    this.transitionState(params.delegationId, { type: 'SEND_CONTINUE', message: continueMessage });
+
+    await this.executorClient.sendContinue(delegation.peerUrl, continueMessage);
+    await this.persistDelegation(params.delegationId);
+
+    console.log(`[AWCP:Delegator] CONTINUE sent for ${params.delegationId} (round ${round})`);
+  }
+
+  async close(delegationId: string): Promise<void> {
+    const delegation = this.delegations.get(delegationId);
+    if (!delegation) {
+      throw new Error(`Unknown delegation: ${delegationId}`);
+    }
+
+    const sm = this.stateMachines.get(delegationId)!;
+    if (sm.getState() !== 'idle') {
+      throw new Error(
+        `Cannot close delegation ${delegationId} in state '${sm.getState()}', expected 'idle'`
+      );
+    }
+
+    this.transitionState(delegationId, { type: 'SEND_CLOSE' });
+
+    const closeMessage: CloseMessage = {
+      version: PROTOCOL_VERSION,
+      type: 'CLOSE',
+      delegationId,
+    };
+
+    try {
+      await this.executorClient.sendClose(delegation.peerUrl, closeMessage);
+    } catch (error) {
+      console.error(`[AWCP:Delegator] Failed to send CLOSE for ${delegationId}, cleaning up directly:`, error);
+    }
+
+    const stream = this.activeStreams.get(delegationId);
+    if (stream) {
+      stream.abort();
+      this.activeStreams.delete(delegationId);
+    }
+
+    await this.persistDelegation(delegationId);
+    await this.transport.release(delegationId).catch(() => {});
+    await this.environmentManager.release(delegationId);
+
+    this.config.hooks.onDelegationCompleted?.(delegation);
+    console.log(`[AWCP:Delegator] Session closed for ${delegationId}`);
   }
 
   async handleError(message: ErrorMessage): Promise<void> {
@@ -431,6 +566,10 @@ export class DelegatorService implements DelegatorRequestHandler {
       await this.handleSnapshotEvent(delegationId, event);
     }
 
+    if (event.type === 'round_done') {
+      await this.handleRoundDone(delegationId, event);
+    }
+
     if (event.type === 'done') {
       await this.executorClient.acknowledgeResult(delegation.peerUrl, delegationId).catch(() => {});
 
@@ -480,6 +619,12 @@ export class DelegatorService implements DelegatorRequestHandler {
     }
 
     this.transitionState(delegationId, { type: 'CANCEL' });
+
+    const stream = this.activeStreams.get(delegationId);
+    if (stream) {
+      stream.abort();
+      this.activeStreams.delete(delegationId);
+    }
 
     await this.persistDelegation(delegationId);
     await this.executorClient.sendCancel(delegation.peerUrl, delegationId).catch(console.error);

@@ -2,7 +2,7 @@
  * HTTP Client for sending AWCP messages to Executor
  */
 
-import type { AwcpMessage, AcceptMessage, ErrorMessage, TaskEvent } from '@awcp/core';
+import type { AwcpMessage, AcceptMessage, ErrorMessage, TaskEvent, ContinueMessage, CloseMessage } from '@awcp/core';
 
 export type InviteResponse = AcceptMessage | ErrorMessage;
 
@@ -102,6 +102,7 @@ export class ExecutorClient {
                 if (event.type === 'done' || event.type === 'error') {
                   return;
                 }
+                // round_done does NOT terminate the stream
               } catch {
                 // Ignore parse errors
               }
@@ -112,6 +113,14 @@ export class ExecutorClient {
     } finally {
       reader.releaseLock();
     }
+  }
+
+  async sendContinue(executorUrl: string, message: ContinueMessage): Promise<void> {
+    await this.send(executorUrl, message);
+  }
+
+  async sendClose(executorUrl: string, message: CloseMessage): Promise<void> {
+    await this.send(executorUrl, message);
   }
 
   async sendCancel(executorUrl: string, delegationId: string): Promise<void> {
