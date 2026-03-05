@@ -148,11 +148,6 @@ export class ExecutorService implements ExecutorRequestHandler {
       existing.state = 'pending';
       existing.invite = invite;
       existing.retentionMs = retentionMs;
-      existing.lease = undefined;
-      existing.startedAt = undefined;
-      existing.completedAt = undefined;
-      existing.result = undefined;
-      existing.error = undefined;
 
       this.stateMachines.set(delegationId, new AssignmentStateMachine());
       this.eventEmitters.set(delegationId, new EventEmitter());
