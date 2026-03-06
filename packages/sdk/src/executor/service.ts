@@ -7,6 +7,8 @@ import { join } from 'node:path';
 import {
   type InviteMessage,
   type StartMessage,
+  type ContinueMessage,
+  type CloseMessage,
   type AcceptMessage,
   type ErrorMessage,
   type AwcpMessage,
@@ -17,7 +19,9 @@ import {
   type TaskStatusEvent,
   type TaskSnapshotEvent,
   type TaskDoneEvent,
+  type TaskRoundDoneEvent,
   type TaskErrorEvent,
+  type TaskSpec,
   type AssignmentEvent,
   AssignmentStateMachine,
   isTerminalAssignmentState,
@@ -116,6 +120,12 @@ export class ExecutorService implements ExecutorRequestHandler {
         case 'START':
           await this.handleStart(message);
           return null;
+        case 'CONTINUE':
+          await this.handleContinue(message);
+          return null;
+        case 'CLOSE':
+          await this.handleClose(message);
+          return null;
         case 'ERROR':
           await this.handleError(message);
           return null;
@@ -148,6 +158,13 @@ export class ExecutorService implements ExecutorRequestHandler {
       existing.state = 'pending';
       existing.invite = invite;
       existing.retentionMs = retentionMs;
+      existing.error = undefined;
+      existing.currentRound = 1;
+      existing.rounds = [{
+        number: 1,
+        task: invite.task,
+        startedAt: new Date().toISOString(),
+      }];
 
       this.stateMachines.set(delegationId, new AssignmentStateMachine());
       this.eventEmitters.set(delegationId, new EventEmitter());
@@ -256,6 +273,70 @@ export class ExecutorService implements ExecutorRequestHandler {
     );
   }
 
+  private async handleContinue(message: ContinueMessage): Promise<void> {
+    const { delegationId } = message;
+    const assignment = this.assignments.get(delegationId);
+    if (!assignment) {
+      throw new Error(`Unknown delegation for CONTINUE: ${delegationId} (known=[${Array.from(this.assignments.keys()).join(',')}])`);
+    }
+
+    this.transitionState(delegationId, { type: 'RECEIVE_CONTINUE' });
+
+    // Save current round result if exists
+    const currentRound = assignment.rounds[assignment.rounds.length - 1];
+    if (currentRound && !currentRound.completedAt) {
+      currentRound.completedAt = new Date().toISOString();
+    }
+
+    // Start new round
+    assignment.currentRound = message.round;
+    assignment.rounds.push({
+      number: message.round,
+      task: message.task,
+      startedAt: new Date().toISOString(),
+    });
+
+    if (message.lease) {
+      assignment.lease = message.lease;
+    }
+
+    await this.persistAssignment(delegationId);
+
+    console.log(`[AWCP:Executor] Starting round ${message.round} for ${delegationId}`);
+
+    // Execute on existing workspace — NO transport.setup() needed
+    this.executeRound(delegationId, message.task, message.round);
+  }
+
+  private async handleClose(message: CloseMessage): Promise<void> {
+    const { delegationId } = message;
+    const assignment = this.assignments.get(delegationId);
+    if (!assignment) {
+      throw new Error(`Unknown delegation for CLOSE: ${delegationId}`);
+    }
+
+    this.transitionState(delegationId, { type: 'RECEIVE_CLOSE' });
+
+    assignment.completedAt = new Date().toISOString();
+    await this.persistAssignment(delegationId);
+
+    // Emit done event to close SSE stream
+    const emitter = this.eventEmitters.get(delegationId);
+    if (emitter) {
+      const doneEvent: TaskDoneEvent = {
+        delegationId,
+        type: 'done',
+        timestamp: new Date().toISOString(),
+        summary: 'Session closed by delegator',
+      };
+      emitter.emit('event', doneEvent);
+    }
+
+    // Final cleanup — use release() (not detach()) to fully tear down transport
+    await this.transport.release({ delegationId, localPath: assignment.workPath }).catch(() => {});
+    console.log(`[AWCP:Executor] Session closed for ${delegationId}`);
+  }
+
   subscribeTask(delegationId: string, callback: (event: TaskEvent) => void): () => void {
     const assignment = this.assignments.get(delegationId);
     if (!assignment) {
@@ -317,6 +398,9 @@ export class ExecutorService implements ExecutorRequestHandler {
         localPath: assignment.workPath,
       });
 
+      // Store actualPath for later rounds
+      assignment.workPath = actualPath;
+
       this.config.hooks.onTaskStart?.({
         delegationId,
         workPath: actualPath,
@@ -325,26 +409,68 @@ export class ExecutorService implements ExecutorRequestHandler {
         environment: assignment.invite.environment,
       });
 
-      console.log(`[AWCP:Executor] Task ${delegationId} executing (listeners=${emitter.listenerCount('event')})...`);
+      console.log(`[AWCP:Executor] Task ${delegationId} executing round 1 (listeners=${emitter.listenerCount('event')})...`);
+
+      // Delegate to _doRound for the actual execution
+      await this._doRound(delegationId, assignment.invite.task, 1);
+
+    } catch (error) {
+      // Transport setup or workspace prep failed
+      console.error(`[AWCP:Executor] Task ${delegationId} setup failed:`, error instanceof Error ? error.message : error);
+
+      const errorEvent: TaskErrorEvent = {
+        delegationId,
+        type: 'error',
+        timestamp: new Date().toISOString(),
+        code: ErrorCodes.TASK_FAILED,
+        message: error instanceof Error ? error.message : String(error),
+        hint: 'Check task requirements and try again',
+      };
+      emitter.emit('event', errorEvent);
+
+      this.transitionState(delegationId, { type: 'TASK_FAIL' });
+      assignment.completedAt = new Date().toISOString();
+      assignment.error = {
+        code: ErrorCodes.TASK_FAILED,
+        message: error instanceof Error ? error.message : String(error),
+      };
+      await this.persistAssignment(delegationId);
+      await this.transport.detach({ delegationId, localPath: assignment.workPath }).catch(() => {});
+      this.config.hooks.onError?.(delegationId, error instanceof Error ? error : new Error(String(error)));
+    }
+  }
+
+  private executeRound(delegationId: string, task: TaskSpec, round: number): void {
+    // This runs the executor on the EXISTING workspace, no transport setup
+    // Fire and forget (async)
+    this._doRound(delegationId, task, round).catch((error) => {
+      console.error(`[AWCP:Executor] Round ${round} failed for ${delegationId}:`, error);
+    });
+  }
+
+  private async _doRound(delegationId: string, task: TaskSpec, round: number): Promise<void> {
+    const assignment = this.assignments.get(delegationId)!;
+    const emitter = this.eventEmitters.get(delegationId)!;
+
+    try {
       const statusEvent: TaskStatusEvent = {
         delegationId,
         type: 'status',
         timestamp: new Date().toISOString(),
         status: 'running',
-        message: 'Task execution started',
+        message: `Round ${round} execution started`,
       };
       emitter.emit('event', statusEvent);
 
       const result = await this.executor.execute({
         delegationId,
-        workPath: actualPath,
-        task: assignment.invite.task,
+        workPath: assignment.workPath,
+        task,
         environment: assignment.invite.environment,
       });
 
-      console.log(`[AWCP:Executor] Task ${delegationId} completed, capturing snapshot...`);
-      const snapshotResult = await this.transport.captureSnapshot?.({ delegationId, localPath: actualPath });
-
+      // Capture snapshot
+      const snapshotResult = await this.transport.captureSnapshot?.({ delegationId, localPath: assignment.workPath });
       const snapshotId = generateSnapshotId();
 
       if (snapshotResult?.snapshotBase64) {
@@ -361,35 +487,37 @@ export class ExecutorService implements ExecutorRequestHandler {
         emitter.emit('event', snapshotEvent);
       }
 
-      const doneEvent: TaskDoneEvent = {
+      // Emit round_done (NOT done — session stays alive)
+      const roundDoneEvent: TaskRoundDoneEvent = {
         delegationId,
-        type: 'done',
+        type: 'round_done',
         timestamp: new Date().toISOString(),
+        round,
         summary: result.summary,
         highlights: result.highlights,
         snapshotIds: snapshotResult?.snapshotBase64 ? [snapshotId] : undefined,
         recommendedSnapshotId: snapshotResult?.snapshotBase64 ? snapshotId : undefined,
       };
+      emitter.emit('event', roundDoneEvent);
 
-      emitter.emit('event', doneEvent);
-      console.log(
-        `[AWCP:Executor] Task ${delegationId} done event emitted` +
-        ` (listeners=${emitter.listenerCount('event')})`
-      );
-      this.config.hooks.onTaskComplete?.(delegationId, result.summary);
+      this.transitionState(delegationId, { type: 'ROUND_COMPLETE' });
 
-      this.transitionState(delegationId, { type: 'TASK_COMPLETE' });
-      assignment.completedAt = new Date().toISOString();
-      assignment.result = {
-        summary: result.summary,
-        highlights: result.highlights,
-        snapshotBase64: snapshotResult?.snapshotBase64,
-      };
+      // Update round record
+      const currentRoundRecord = assignment.rounds[assignment.rounds.length - 1];
+      if (currentRoundRecord) {
+        currentRoundRecord.completedAt = new Date().toISOString();
+        currentRoundRecord.result = { summary: result.summary, highlights: result.highlights };
+      }
+
+      assignment.result = { summary: result.summary, highlights: result.highlights };
       await this.persistAssignment(delegationId);
 
-      await this.transport.detach({ delegationId, localPath: assignment.workPath }).catch(() => {});
+      // Do NOT detach transport — workspace stays alive for next round
+      console.log(`[AWCP:Executor] Round ${round} completed for ${delegationId} (state=idle)`);
+      this.config.hooks.onTaskComplete?.(delegationId, result.summary);
+
     } catch (error) {
-      console.error(`[AWCP:Executor] Task ${delegationId} failed:`, error instanceof Error ? error.message : error);
+      console.error(`[AWCP:Executor] Round ${round} failed for ${delegationId}:`, error instanceof Error ? error.message : error);
 
       const errorEvent: TaskErrorEvent = {
         delegationId,
@@ -399,16 +527,7 @@ export class ExecutorService implements ExecutorRequestHandler {
         message: error instanceof Error ? error.message : String(error),
         hint: 'Check task requirements and try again',
       };
-
       emitter.emit('event', errorEvent);
-      console.log(
-        `[AWCP:Executor] Task ${delegationId} error event emitted` +
-        ` (listeners=${emitter.listenerCount('event')})`
-      );
-      this.config.hooks.onError?.(
-        delegationId,
-        error instanceof Error ? error : new Error(String(error))
-      );
 
       this.transitionState(delegationId, { type: 'TASK_FAIL' });
       assignment.completedAt = new Date().toISOString();
@@ -418,8 +537,8 @@ export class ExecutorService implements ExecutorRequestHandler {
         hint: 'Check task requirements and try again',
       };
       await this.persistAssignment(delegationId);
-
       await this.transport.detach({ delegationId, localPath: assignment.workPath }).catch(() => {});
+      this.config.hooks.onError?.(delegationId, error instanceof Error ? error : new Error(String(error)));
     }
   }
 
@@ -458,7 +577,7 @@ export class ExecutorService implements ExecutorRequestHandler {
   }
 
   getStatus(): ExecutorServiceStatus {
-    const active = Array.from(this.assignments.values()).filter(a => a.state === 'active');
+    const active = Array.from(this.assignments.values()).filter(a => a.state === 'active' || a.state === 'idle');
     return {
       pendingInvitations: Array.from(this.assignments.values()).filter(a => a.state === 'pending').length,
       activeDelegations: active.length,

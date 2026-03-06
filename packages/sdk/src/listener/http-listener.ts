@@ -65,6 +65,7 @@ export class HttpListener implements ListenerAdapter {
           clearInterval(heartbeat);
           res.end();
         }
+        // round_done keeps the SSE connection alive
       });
 
       req.on('close', () => {

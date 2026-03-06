@@ -4,7 +4,8 @@ import type { AssignmentState, Assignment } from '../types/messages.js';
 
 const ASSIGNMENT_TRANSITIONS: Record<AssignmentState, AssignmentState[]> = {
   pending: ['active', 'error'],
-  active: ['completed', 'error'],
+  active: ['idle', 'completed', 'error'],
+  idle: ['active', 'completed', 'error'],
   completed: [],
   error: [],
 };
@@ -25,6 +26,9 @@ export function isValidAssignmentTransition(
 export type AssignmentEvent =
   | { type: 'RECEIVE_START' }
   | { type: 'TASK_COMPLETE' }
+  | { type: 'ROUND_COMPLETE' }
+  | { type: 'RECEIVE_CONTINUE' }
+  | { type: 'RECEIVE_CLOSE' }
   | { type: 'TASK_FAIL' }
   | { type: 'RECEIVE_ERROR' }
   | { type: 'CANCEL' };
@@ -88,6 +92,15 @@ export class AssignmentStateMachine {
       case 'TASK_COMPLETE':
         return this.state === 'active' ? 'completed' : null;
 
+      case 'ROUND_COMPLETE':
+        return this.state === 'active' ? 'idle' : null;
+
+      case 'RECEIVE_CONTINUE':
+        return this.state === 'idle' ? 'active' : null;
+
+      case 'RECEIVE_CLOSE':
+        return this.state === 'idle' ? 'completed' : null;
+
       case 'TASK_FAIL':
         return this.state === 'active' ? 'error' : null;
 
@@ -116,6 +129,12 @@ export function createAssignment(params: {
     invite: params.invite,
     workPath: params.workPath,
     retentionMs: params.retentionMs,
+    currentRound: 1,
+    rounds: [{
+      number: 1,
+      task: params.invite.task,
+      startedAt: now,
+    }],
     createdAt: now,
     updatedAt: now,
   };

@@ -273,7 +273,7 @@ describe('StorageExecutorTransport', () => {
     expect(await fs.promises.readFile(path.join(resultDir, 'new-file.txt'), 'utf-8')).toBe('new file content');
   });
 
-  it('should clean stored handle on detach', async () => {
+  it('should preserve stored handle after detach (multi-round support)', async () => {
     const exportDir = path.join(tempDir, 'export');
     await fs.promises.mkdir(exportDir, { recursive: true });
     await fs.promises.writeFile(path.join(exportDir, 'test.txt'), 'hello');
@@ -293,8 +293,159 @@ describe('StorageExecutorTransport', () => {
       localPath,
     });
 
+    const snapshotInfo = JSON.parse(result.snapshotBase64);
+    expect(snapshotInfo.resultUrl).toContain('http://localhost');
+  });
+
+  it('should clean stored handle on release (final cleanup)', async () => {
+    const exportDir = path.join(tempDir, 'export');
+    await fs.promises.mkdir(exportDir, { recursive: true });
+    await fs.promises.writeFile(path.join(exportDir, 'test.txt'), 'hello');
+
+    const handle = await delegator.prepare({
+      delegationId: 'test-delegation',
+      exportPath: exportDir,
+      ttlSeconds: 300,
+    });
+
+    const localPath = path.join(tempDir, 'work');
+    await executor.setup({ delegationId: 'test-delegation', handle, localPath });
+    await executor.release({ delegationId: 'test-delegation', localPath });
+
+    const result = await executor.captureSnapshot({
+      delegationId: 'test-delegation',
+      localPath,
+    });
+
     const snapshotData = result.snapshotBase64;
     expect(() => JSON.parse(snapshotData)).toThrow();
+  });
+
+  describe('Multi-round scenarios', () => {
+    it('should support multiple snapshot captures across rounds without re-setup', async () => {
+      const exportDir = path.join(tempDir, 'export');
+      await fs.promises.mkdir(exportDir, { recursive: true });
+      await fs.promises.writeFile(path.join(exportDir, 'data.txt'), 'initial');
+
+      const handle = await delegator.prepare({
+        delegationId: 'test-delegation',
+        exportPath: exportDir,
+        ttlSeconds: 300,
+      });
+
+      const localPath = path.join(tempDir, 'work');
+      await executor.setup({ delegationId: 'test-delegation', handle, localPath });
+
+      await fs.promises.writeFile(path.join(localPath, 'data.txt'), 'round 1');
+      const result1 = await executor.captureSnapshot({
+        delegationId: 'test-delegation',
+        localPath,
+      });
+      const snapshot1 = JSON.parse(result1.snapshotBase64);
+      expect(snapshot1.resultUrl).toContain('http://localhost');
+
+      await executor.detach({ delegationId: 'test-delegation', localPath });
+
+      await fs.promises.writeFile(path.join(localPath, 'data.txt'), 'round 2');
+      const result2 = await executor.captureSnapshot({
+        delegationId: 'test-delegation',
+        localPath,
+      });
+      const snapshot2 = JSON.parse(result2.snapshotBase64);
+      expect(snapshot2.resultUrl).toContain('http://localhost');
+    });
+
+    it('should upload to correct URL across multiple rounds', async () => {
+      const exportDir = path.join(tempDir, 'export');
+      await fs.promises.mkdir(exportDir, { recursive: true });
+      await fs.promises.writeFile(path.join(exportDir, 'file.txt'), 'original');
+
+      const handle = await delegator.prepare({
+        delegationId: 'test-delegation',
+        exportPath: exportDir,
+        ttlSeconds: 300,
+      });
+
+      const localPath = path.join(tempDir, 'work');
+      await executor.setup({ delegationId: 'test-delegation', handle, localPath });
+
+      await fs.promises.writeFile(path.join(localPath, 'file.txt'), 'round 1 content');
+      const result1 = await executor.captureSnapshot({
+        delegationId: 'test-delegation',
+        localPath,
+      });
+      const snapshot1 = JSON.parse(result1.snapshotBase64);
+
+      const response1 = await fetch(snapshot1.resultUrl);
+      expect(response1.ok).toBe(true);
+      const buffer1 = Buffer.from(await response1.arrayBuffer());
+      const verifyZip1 = path.join(tempDir, 'verify-round1.zip');
+      await fs.promises.writeFile(verifyZip1, buffer1);
+      const verifyDir1 = path.join(tempDir, 'verify-round1');
+      await extractArchive(verifyZip1, verifyDir1);
+      expect(await fs.promises.readFile(path.join(verifyDir1, 'file.txt'), 'utf-8')).toBe('round 1 content');
+
+      await executor.detach({ delegationId: 'test-delegation', localPath });
+
+      await fs.promises.writeFile(path.join(localPath, 'file.txt'), 'round 2 content');
+      const result2 = await executor.captureSnapshot({
+        delegationId: 'test-delegation',
+        localPath,
+      });
+      const snapshot2 = JSON.parse(result2.snapshotBase64);
+
+      const response2 = await fetch(snapshot2.resultUrl);
+      expect(response2.ok).toBe(true);
+      const buffer2 = Buffer.from(await response2.arrayBuffer());
+      const verifyZip2 = path.join(tempDir, 'verify-round2.zip');
+      await fs.promises.writeFile(verifyZip2, buffer2);
+      const verifyDir2 = path.join(tempDir, 'verify-round2');
+      await extractArchive(verifyZip2, verifyDir2);
+      expect(await fs.promises.readFile(path.join(verifyDir2, 'file.txt'), 'utf-8')).toBe('round 2 content');
+    });
+
+    it('should support full multi-round lifecycle: setup → round1 → detach → round2 → detach → release', async () => {
+      const exportDir = path.join(tempDir, 'export');
+      await fs.promises.mkdir(exportDir, { recursive: true });
+      await fs.promises.writeFile(path.join(exportDir, 'version.txt'), 'v1');
+
+      const handle = await delegator.prepare({
+        delegationId: 'test-delegation',
+        exportPath: exportDir,
+        ttlSeconds: 300,
+      });
+
+      const localPath = path.join(tempDir, 'work');
+      await executor.setup({ delegationId: 'test-delegation', handle, localPath });
+
+      await fs.promises.writeFile(path.join(localPath, 'version.txt'), 'v2');
+      const result1 = await executor.captureSnapshot({
+        delegationId: 'test-delegation',
+        localPath,
+      });
+      const snapshot1 = JSON.parse(result1.snapshotBase64);
+      expect(snapshot1.resultUrl).toContain('http://localhost');
+
+      await executor.detach({ delegationId: 'test-delegation', localPath });
+
+      await fs.promises.writeFile(path.join(localPath, 'version.txt'), 'v3');
+      const result2 = await executor.captureSnapshot({
+        delegationId: 'test-delegation',
+        localPath,
+      });
+      const snapshot2 = JSON.parse(result2.snapshotBase64);
+      expect(snapshot2.resultUrl).toContain('http://localhost');
+
+      await executor.detach({ delegationId: 'test-delegation', localPath });
+
+      await executor.release({ delegationId: 'test-delegation', localPath });
+
+      const result3 = await executor.captureSnapshot({
+        delegationId: 'test-delegation',
+        localPath,
+      });
+      expect(() => JSON.parse(result3.snapshotBase64)).toThrow();
+    });
   });
 });
 

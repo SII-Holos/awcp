@@ -189,3 +189,127 @@ describe('ArchiveExecutorTransport', () => {
     expect(zips).toHaveLength(0);
   });
 });
+
+describe('Multi-round support', () => {
+  let tempDir: string;
+  let delegator: ArchiveDelegatorTransport;
+  let executor: ArchiveExecutorTransport;
+
+  beforeEach(async () => {
+    tempDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'awcp-test-'));
+    delegator = new ArchiveDelegatorTransport({ tempDir });
+    executor = new ArchiveExecutorTransport({ tempDir });
+    await delegator.initialize();
+    await executor.initialize();
+  });
+
+  afterEach(async () => {
+    await delegator.shutdown();
+    await executor.shutdown();
+    await fs.promises.rm(tempDir, { recursive: true, force: true });
+  });
+
+  it('should preserve workspace across detach for multi-round use', async () => {
+    const exportDir = path.join(tempDir, 'export');
+    await fs.promises.mkdir(exportDir, { recursive: true });
+    await fs.promises.writeFile(path.join(exportDir, 'file.txt'), 'initial');
+
+    const handle = await delegator.prepare({
+      delegationId: 'multi-round',
+      exportPath: exportDir,
+      ttlSeconds: 300,
+    });
+
+    const localPath = path.join(tempDir, 'work');
+    await executor.setup({ delegationId: 'multi-round', handle, localPath });
+
+    await fs.promises.writeFile(path.join(localPath, 'file.txt'), 'round 1');
+    const round1 = await executor.captureSnapshot({ delegationId: 'multi-round', localPath });
+    expect(round1.snapshotBase64).toBeDefined();
+
+    await delegator.detach('multi-round');
+    await executor.detach({ delegationId: 'multi-round', localPath });
+
+    const stat = await fs.promises.stat(localPath);
+    expect(stat.isDirectory()).toBe(true);
+    const contentAfterDetach = await fs.promises.readFile(path.join(localPath, 'file.txt'), 'utf-8');
+    expect(contentAfterDetach).toBe('round 1');
+
+    await fs.promises.writeFile(path.join(localPath, 'file.txt'), 'round 2');
+    await fs.promises.writeFile(path.join(localPath, 'new.txt'), 'added in round 2');
+
+    const round2 = await executor.captureSnapshot({ delegationId: 'multi-round', localPath });
+    expect(round2.snapshotBase64).toBeDefined();
+
+    const resultZip = path.join(tempDir, 'round2-verify.zip');
+    await fs.promises.writeFile(resultZip, Buffer.from(round2.snapshotBase64, 'base64'));
+    const resultDir = path.join(tempDir, 'round2-verify');
+    await extractArchive(resultZip, resultDir);
+
+    expect(await fs.promises.readFile(path.join(resultDir, 'file.txt'), 'utf-8')).toBe('round 2');
+    expect(await fs.promises.readFile(path.join(resultDir, 'new.txt'), 'utf-8')).toBe('added in round 2');
+  });
+
+  it('should allow multiple snapshots across rounds with different content', async () => {
+    const exportDir = path.join(tempDir, 'export');
+    await fs.promises.mkdir(exportDir, { recursive: true });
+    await fs.promises.writeFile(path.join(exportDir, 'data.txt'), 'seed');
+
+    const handle = await delegator.prepare({
+      delegationId: 'snapshot-diff',
+      exportPath: exportDir,
+      ttlSeconds: 300,
+    });
+
+    const localPath = path.join(tempDir, 'work');
+    await executor.setup({ delegationId: 'snapshot-diff', handle, localPath });
+
+    await fs.promises.writeFile(path.join(localPath, 'data.txt'), 'round 1 content');
+    const round1 = await executor.captureSnapshot({ delegationId: 'snapshot-diff', localPath });
+
+    const round1Zip = path.join(tempDir, 'r1.zip');
+    await fs.promises.writeFile(round1Zip, Buffer.from(round1.snapshotBase64, 'base64'));
+    const round1Dir = path.join(tempDir, 'r1');
+    await extractArchive(round1Zip, round1Dir);
+    expect(await fs.promises.readFile(path.join(round1Dir, 'data.txt'), 'utf-8')).toBe('round 1 content');
+
+    await delegator.detach('snapshot-diff');
+    await executor.detach({ delegationId: 'snapshot-diff', localPath });
+
+    await fs.promises.writeFile(path.join(localPath, 'data.txt'), 'round 2 content');
+    const round2 = await executor.captureSnapshot({ delegationId: 'snapshot-diff', localPath });
+
+    const round2Zip = path.join(tempDir, 'r2.zip');
+    await fs.promises.writeFile(round2Zip, Buffer.from(round2.snapshotBase64, 'base64'));
+    const round2Dir = path.join(tempDir, 'r2');
+    await extractArchive(round2Zip, round2Dir);
+    expect(await fs.promises.readFile(path.join(round2Dir, 'data.txt'), 'utf-8')).toBe('round 2 content');
+
+    expect(round1.snapshotBase64).not.toBe(round2.snapshotBase64);
+  });
+
+  it('should clean up only on release, not detach', async () => {
+    const exportDir = path.join(tempDir, 'export');
+    await fs.promises.mkdir(exportDir, { recursive: true });
+    await fs.promises.writeFile(path.join(exportDir, 'keep.txt'), 'persist');
+
+    const handle = await delegator.prepare({
+      delegationId: 'cleanup-test',
+      exportPath: exportDir,
+      ttlSeconds: 300,
+    });
+
+    const localPath = path.join(tempDir, 'work');
+    await executor.setup({ delegationId: 'cleanup-test', handle, localPath });
+
+    await delegator.detach('cleanup-test');
+    await executor.detach({ delegationId: 'cleanup-test', localPath });
+
+    const existsAfterDetach = await fs.promises.stat(localPath).then(() => true, () => false);
+    expect(existsAfterDetach).toBe(true);
+    expect(await fs.promises.readFile(path.join(localPath, 'keep.txt'), 'utf-8')).toBe('persist');
+
+    await delegator.release('cleanup-test');
+    await executor.release({ delegationId: 'cleanup-test', localPath });
+  });
+});

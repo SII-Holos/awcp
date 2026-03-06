@@ -7,6 +7,7 @@ import type {
   StartMessage,
   DoneMessage,
   ErrorMessage,
+  ContinueMessage,
 } from '../types/messages.js';
 
 // ========== Transition Table ==========
@@ -16,7 +17,8 @@ const DELEGATION_TRANSITIONS: Record<DelegationState, DelegationState[]> = {
   invited: ['accepted', 'error', 'cancelled', 'expired'],
   accepted: ['started', 'error', 'cancelled', 'expired'],
   started: ['running', 'error', 'cancelled'],
-  running: ['completed', 'error', 'cancelled', 'expired'],
+  running: ['idle', 'completed', 'error', 'cancelled', 'expired'],
+  idle: ['running', 'completed', 'error', 'cancelled'],
   completed: [],
   error: [],
   cancelled: [],
@@ -41,11 +43,14 @@ export type DelegationEvent =
   | { type: 'RECEIVE_ACCEPT'; message: AcceptMessage }
   | { type: 'SEND_START'; message: StartMessage }
   | { type: 'SETUP_COMPLETE' }
+  | { type: 'ROUND_COMPLETE' }
+  | { type: 'SEND_CONTINUE'; message: ContinueMessage }
+  | { type: 'SEND_CLOSE' }
   | { type: 'RECEIVE_DONE'; message: DoneMessage }
   | { type: 'RECEIVE_ERROR'; message: ErrorMessage }
   | { type: 'SEND_ERROR'; message: ErrorMessage }
   | { type: 'CANCEL' }
-  | { type: 'EXPIRE' };  // TODO: Implement lease expiration timer
+  | { type: 'EXPIRE' };
 
 export interface TransitionResult {
   success: boolean;
@@ -111,6 +116,15 @@ export class DelegationStateMachine {
       
       case 'SETUP_COMPLETE':
         return this.state === 'started' ? 'running' : null;
+
+      case 'ROUND_COMPLETE':
+        return this.state === 'running' ? 'idle' : null;
+
+      case 'SEND_CONTINUE':
+        return this.state === 'idle' ? 'running' : null;
+
+      case 'SEND_CLOSE':
+        return this.state === 'idle' ? 'completed' : null;
       
       case 'RECEIVE_DONE':
         return this.state === 'running' ? 'completed' : null;
@@ -123,7 +137,7 @@ export class DelegationStateMachine {
         return isTerminalState(this.state) ? null : 'cancelled';
       
       case 'EXPIRE':
-        return ['invited', 'accepted', 'running'].includes(this.state)
+        return ['invited', 'accepted', 'running', 'idle'].includes(this.state)
           ? 'expired'
           : null;
       
@@ -156,6 +170,12 @@ export function createDelegation(params: {
     retentionMs: params.retentionMs,
     snapshotPolicy: params.snapshotPolicy,
     exportPath: params.exportPath,
+    currentRound: 1,
+    rounds: [{
+      number: 1,
+      task: params.task,
+      startedAt: now,
+    }],
     createdAt: now,
     updatedAt: now,
   };

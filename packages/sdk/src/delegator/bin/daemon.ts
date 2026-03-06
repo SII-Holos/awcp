@@ -129,6 +129,39 @@ export async function startDelegatorDaemon(config: DaemonConfig): Promise<Daemon
   });
 
   /**
+   * POST /delegation/:id/continue - Continue delegation with new instructions
+   */
+  app.post('/delegation/:id/continue', async (req, res) => {
+    try {
+      const { task } = req.body;
+      if (!task) {
+        res.status(400).json({ error: 'Missing required field: task' });
+        return;
+      }
+      await service.continue({ delegationId: req.params.id, task });
+      res.json({ ok: true, round: service.getDelegation(req.params.id)?.currentRound });
+    } catch (error) {
+      res.status(400).json({
+        error: error instanceof Error ? error.message : 'Failed to continue',
+      });
+    }
+  });
+
+  /**
+   * POST /delegation/:id/close - Close a multi-round delegation session
+   */
+  app.post('/delegation/:id/close', async (req, res) => {
+    try {
+      await service.close(req.params.id);
+      res.json({ ok: true });
+    } catch (error) {
+      res.status(400).json({
+        error: error instanceof Error ? error.message : 'Failed to close',
+      });
+    }
+  });
+
+  /**
    * GET /delegation/:id/snapshots - List snapshots for a delegation
    */
   app.get('/delegation/:id/snapshots', (req, res) => {

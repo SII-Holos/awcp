@@ -59,8 +59,9 @@ export class SshfsExecutorTransport implements ExecutorTransportAdapter {
     return localPath;
   }
 
-  async detach(params: TransportReleaseParams): Promise<void> {
-    await this.mountClient.unmount(params.localPath);
+  async detach(_params: TransportReleaseParams): Promise<void> {
+    // No-op: mount stays alive between rounds for multi-round sessions.
+    // Only release() unmounts (final cleanup).
   }
 
   async release(params: TransportReleaseParams): Promise<void> {

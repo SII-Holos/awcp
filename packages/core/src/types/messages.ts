@@ -1,6 +1,6 @@
 export const PROTOCOL_VERSION = '1' as const;
 
-export type MessageType = 'INVITE' | 'ACCEPT' | 'START' | 'DONE' | 'ERROR';
+export type MessageType = 'INVITE' | 'ACCEPT' | 'START' | 'DONE' | 'ERROR' | 'CONTINUE' | 'CLOSE';
 
 export type AccessMode = 'ro' | 'rw';
 
@@ -51,6 +51,7 @@ export type DelegationState =
   | 'accepted'
   | 'started'
   | 'running'
+  | 'idle'
   | 'completed'
   | 'error'
   | 'cancelled'
@@ -190,18 +191,33 @@ export interface ErrorMessage extends BaseMessage {
   hint?: string;
 }
 
+/** CONTINUE message: Delegator → Executor (start a new round with updated instructions) */
+export interface ContinueMessage extends BaseMessage {
+  type: 'CONTINUE';
+  task: TaskSpec;
+  round: number;
+  lease?: ActiveLease;
+}
+
+/** CLOSE message: Delegator → Executor (end the multi-round session) */
+export interface CloseMessage extends BaseMessage {
+  type: 'CLOSE';
+}
+
 export type AwcpMessage =
   | InviteMessage
   | AcceptMessage
   | StartMessage
   | DoneMessage
-  | ErrorMessage;
+  | ErrorMessage
+  | ContinueMessage
+  | CloseMessage;
 
 // --- Task Events (SSE Streaming) ---
 
 import type { SnapshotMetadata } from './snapshot.js';
 
-export type TaskEventType = 'status' | 'snapshot' | 'done' | 'error';
+export type TaskEventType = 'status' | 'snapshot' | 'done' | 'error' | 'round_done';
 
 export interface BaseTaskEvent {
   delegationId: string;
@@ -242,11 +258,32 @@ export interface TaskErrorEvent extends BaseTaskEvent {
   hint?: string;
 }
 
-export type TaskEvent = TaskStatusEvent | TaskSnapshotEvent | TaskDoneEvent | TaskErrorEvent;
+export interface TaskRoundDoneEvent extends BaseTaskEvent {
+  type: 'round_done';
+  round: number;
+  summary: string;
+  highlights?: string[];
+  snapshotIds?: string[];
+  recommendedSnapshotId?: string;
+}
+
+export type TaskEvent = TaskStatusEvent | TaskSnapshotEvent | TaskDoneEvent | TaskErrorEvent | TaskRoundDoneEvent;
 
 // --- Delegation Record ---
 
 import type { EnvironmentSnapshot, SnapshotPolicy } from './snapshot.js';
+
+export interface Round {
+  number: number;
+  task: TaskSpec;
+  result?: {
+    summary: string;
+    highlights?: string[];
+  };
+  snapshots?: EnvironmentSnapshot[];
+  startedAt: string;
+  completedAt?: string;
+}
 
 export interface Delegation {
   id: string;
@@ -264,6 +301,8 @@ export interface Delegation {
   snapshots?: EnvironmentSnapshot[];
   appliedSnapshotId?: string;
   snapshotPolicy?: SnapshotPolicy;
+  currentRound: number;
+  rounds: Round[];
   result?: {
     summary: string;
     highlights?: string[];
@@ -279,7 +318,7 @@ export interface Delegation {
 
 // --- Assignment Record ---
 
-export type AssignmentState = 'pending' | 'active' | 'completed' | 'error';
+export type AssignmentState = 'pending' | 'active' | 'idle' | 'completed' | 'error';
 
 export interface Assignment {
   id: string;
@@ -288,6 +327,8 @@ export interface Assignment {
   workPath: string;
   retentionMs: number;
   lease?: ActiveLease;
+  currentRound: number;
+  rounds: Round[];
   startedAt?: string;
   completedAt?: string;
   result?: {
