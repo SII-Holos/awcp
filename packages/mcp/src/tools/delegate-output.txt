@@ -1,27 +1,27 @@
 Retrieve status or results from a background delegation.
 
-This is your primary tool for getting results after launching `delegate(background: true)`.
+This is your primary tool for getting results after launching `delegate(background: true)` or checking a multi-round session.
 
 ## When to use
 
 - **Check progress**: See if a delegation is still running or has completed
-- **Retrieve results**: Get the final output once the task is done
-- **Wait for completion**: Block until the delegation finishes (use with `block: true`)
+- **Retrieve results**: Get the latest round output once it finishes
+- **Wait for next round**: Block until the delegation reaches `idle` or a terminal state (use with `block: true`)
 
 ## Parameters
 - **delegation_id** (required): The ID returned from `delegate(background: true)`
-- **block** (optional): If true, waits for the delegation to complete before returning
+- **block** (optional): If true, waits for the delegation to reach `idle` or a terminal state
 - **timeout** (optional): Maximum seconds to wait when blocking (default: 60)
 
 ## Recommended usage
 
-After launching background delegations and completing other work, use `block: true` to wait for results:
+After launching background delegations and completing other work, use `block: true` to wait for the next round's output:
 
 ```
 # Earlier: launched delegation
 delegate(background: true, ...) → "dlg_abc123"
 
-# Now: ready for the result
+# Now: ready for the next round output
 delegate_output(delegation_id: "dlg_abc123", block: true, timeout: 300)
 ```
 
@@ -29,7 +29,7 @@ For long-running tasks, increase the timeout accordingly.
 
 ## Examples
 
-### Wait for result (most common)
+### Wait for next round output (most common)
 ```
 delegate_output(delegation_id: "dlg_abc123", block: true, timeout: 120)
 ```

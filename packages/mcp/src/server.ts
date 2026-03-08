@@ -196,7 +196,7 @@ Use \`delegate_output(delegation_id="${delegationId}")\` to check progress or re
 
         if (block && isRunning(delegation)) {
           const timeoutMs = (timeoutSec ?? 60) * 1000;
-          delegation = await client.waitForCompletion(delegation_id, 2000, timeoutMs);
+          delegation = await client.waitForIdle(delegation_id, 2000, timeoutMs);
         }
 
         return {
@@ -337,7 +337,18 @@ Use \`delegate_output(delegation_id="${delegationId}")\` to check progress or re
       const { delegation_id, snapshot_id } = params;
 
       try {
+        const beforeState = (await client.getDelegation(delegation_id))?.state;
         await client.applySnapshot(delegation_id, snapshot_id);
+
+        if (beforeState === 'idle') {
+          return {
+            content: [{
+              type: 'text' as const,
+              text: `Snapshot ${snapshot_id} applied successfully. Local workspace updated.\nDelegation auto-closed (session ended).`,
+            }],
+          };
+        }
+
         return {
           content: [{
             type: 'text' as const,

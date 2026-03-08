@@ -75,6 +75,7 @@ export class DelegatorService implements DelegatorRequestHandler {
   private delegations = new Map<string, Delegation>();
   private stateMachines = new Map<string, DelegationStateMachine>();
   private activeStreams = new Map<string, TaskEventStream>();
+  private idleTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private cleanupTimer?: ReturnType<typeof setInterval>;
 
   constructor(options: DelegatorServiceOptions) {
@@ -157,6 +158,11 @@ export class DelegatorService implements DelegatorRequestHandler {
       stream.abort();
     }
     this.activeStreams.clear();
+
+    for (const timer of this.idleTimers.values()) {
+      clearTimeout(timer);
+    }
+    this.idleTimers.clear();
 
     await this.transport.shutdown?.();
 
@@ -404,6 +410,8 @@ export class DelegatorService implements DelegatorRequestHandler {
 
     await this.persistDelegation(delegationId);
 
+    this.startIdleTimer(delegationId);
+
     this.config.hooks.onRoundCompleted?.(delegation, currentRound ?? {
       number: event.round,
       task: delegation.task,
@@ -425,6 +433,8 @@ export class DelegatorService implements DelegatorRequestHandler {
         `Cannot continue delegation ${params.delegationId} in state '${sm.getState()}', expected 'idle'`
       );
     }
+
+    this.clearIdleTimer(params.delegationId);
 
     const round = delegation.currentRound + 1;
     delegation.currentRound = round;
@@ -464,6 +474,8 @@ export class DelegatorService implements DelegatorRequestHandler {
     }
 
     this.transitionState(delegationId, { type: 'SEND_CLOSE' });
+
+    this.clearIdleTimer(delegationId);
 
     const closeMessage: CloseMessage = {
       version: PROTOCOL_VERSION,
@@ -649,6 +661,12 @@ export class DelegatorService implements DelegatorRequestHandler {
     await this.persistDelegation(delegationId);
 
     this.config.hooks.onSnapshotApplied?.(delegation, snapshot);
+
+    const sm = this.stateMachines.get(delegationId);
+    if (sm && sm.getState() === 'idle') {
+      console.log(`[AWCP:Delegator] Auto-closing ${delegationId} after snapshot applied in idle state`);
+      await this.close(delegationId);
+    }
   }
 
   async discardSnapshot(delegationId: string, snapshotId: string): Promise<void> {
@@ -670,6 +688,37 @@ export class DelegatorService implements DelegatorRequestHandler {
         createdAt: d.createdAt,
       })),
     };
+  }
+
+  private startIdleTimer(delegationId: string): void {
+    this.clearIdleTimer(delegationId);
+
+    const timeoutMs = this.config.delegation.idleTimeoutMs;
+    if (timeoutMs <= 0) return;
+
+    const timer = setTimeout(async () => {
+      this.idleTimers.delete(delegationId);
+      const delegation = this.delegations.get(delegationId);
+      const sm = this.stateMachines.get(delegationId);
+      if (!delegation || !sm || sm.getState() !== 'idle') return;
+
+      console.log(`[AWCP:Delegator] Idle timeout for ${delegationId} (${timeoutMs}ms), auto-closing`);
+      try {
+        await this.close(delegationId);
+      } catch (error) {
+        console.error(`[AWCP:Delegator] Auto-close failed for ${delegationId}:`, error);
+      }
+    }, timeoutMs);
+
+    this.idleTimers.set(delegationId, timer);
+  }
+
+  private clearIdleTimer(delegationId: string): void {
+    const timer = this.idleTimers.get(delegationId);
+    if (timer) {
+      clearTimeout(timer);
+      this.idleTimers.delete(delegationId);
+    }
   }
 
   private async persistDelegation(delegationId: string): Promise<void> {

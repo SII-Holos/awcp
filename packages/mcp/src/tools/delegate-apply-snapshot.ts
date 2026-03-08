@@ -19,6 +19,8 @@ export const delegateApplySnapshotDescription = `Apply a staged snapshot to the 
 
 Extracts the snapshot contents and overwrites the original workspace files with the executor's changes.
 
+**Important**: If the delegation is in \`idle\` state when this is called, the session will be automatically closed after applying. This is the expected flow for accepting results and ending a delegation.
+
 ## When to use
 
 - After reviewing snapshots with delegate_snapshots
@@ -33,6 +35,6 @@ This permanently modifies your local files. The snapshot replaces files in the w
 
 \`\`\`
 delegate_apply_snapshot(delegation_id: "dlg_abc", snapshot_id: "snap_1")
-→ "Snapshot applied successfully"
+→ "Snapshot applied successfully. Delegation auto-closed."
 \`\`\`
 `;

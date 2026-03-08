@@ -28,6 +28,7 @@ export interface DelegatorAdmissionConfig {
 
 export interface DelegationConfig {
   retentionMs?: number;
+  idleTimeoutMs?: number;
   lease?: {
     ttlSeconds?: number;
     accessMode?: AccessMode;
@@ -105,6 +106,7 @@ export const DEFAULT_ADMISSION = {
 
 export const DEFAULT_DELEGATION = {
   retentionMs: 7 * 24 * 60 * 60 * 1000,      // 7 days
+  idleTimeoutMs: 5 * 60 * 1000,               // 5 minutes
   lease: {
     ttlSeconds: 3600,
     accessMode: 'rw' as AccessMode,
@@ -128,6 +130,7 @@ export interface ResolvedDelegatorConfig {
   admission: Required<DelegatorAdmissionConfig>;
   delegation: {
     retentionMs: number;
+    idleTimeoutMs: number;
     lease: Required<NonNullable<DelegationConfig['lease']>>;
     snapshot: Required<NonNullable<DelegationConfig['snapshot']>>;
     connection: Required<NonNullable<DelegationConfig['connection']>>;
@@ -149,6 +152,7 @@ export function resolveDelegatorConfig(config: DelegatorConfig): ResolvedDelegat
     },
     delegation: {
       retentionMs: config.delegation?.retentionMs ?? DEFAULT_DELEGATION.retentionMs,
+      idleTimeoutMs: config.delegation?.idleTimeoutMs ?? DEFAULT_DELEGATION.idleTimeoutMs,
       lease: {
         ttlSeconds: config.delegation?.lease?.ttlSeconds ?? DEFAULT_DELEGATION.lease.ttlSeconds,
         accessMode: config.delegation?.lease?.accessMode ?? DEFAULT_DELEGATION.lease.accessMode,
