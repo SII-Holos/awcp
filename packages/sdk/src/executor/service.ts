@@ -428,7 +428,9 @@ export class ExecutorService implements ExecutorRequestHandler {
       };
       emitter.emit('event', errorEvent);
 
-      this.transitionState(delegationId, { type: 'TASK_FAIL' });
+      if (!this.transitionState(delegationId, { type: 'TASK_FAIL' })) {
+        return; // Already in terminal state (e.g. cancelled during setup)
+      }
       assignment.completedAt = new Date().toISOString();
       assignment.error = {
         code: ErrorCodes.TASK_FAILED,
@@ -500,9 +502,11 @@ export class ExecutorService implements ExecutorRequestHandler {
       };
       emitter.emit('event', roundDoneEvent);
 
-      this.transitionState(delegationId, { type: 'ROUND_COMPLETE' });
+      if (!this.transitionState(delegationId, { type: 'ROUND_COMPLETE' })) {
+        return; // Already in terminal state (e.g. cancelled during LLM call)
+      }
 
-      // Update round record
+      // Update round record (skip if delegation was cancelled mid-flight)
       const currentRoundRecord = assignment.rounds[assignment.rounds.length - 1];
       if (currentRoundRecord) {
         currentRoundRecord.completedAt = new Date().toISOString();
@@ -519,6 +523,7 @@ export class ExecutorService implements ExecutorRequestHandler {
     } catch (error) {
       console.error(`[AWCP:Executor] Round ${round} failed for ${delegationId}:`, error instanceof Error ? error.message : error);
 
+      const emitter = this.eventEmitters.get(delegationId)!;
       const errorEvent: TaskErrorEvent = {
         delegationId,
         type: 'error',
@@ -529,7 +534,9 @@ export class ExecutorService implements ExecutorRequestHandler {
       };
       emitter.emit('event', errorEvent);
 
-      this.transitionState(delegationId, { type: 'TASK_FAIL' });
+      if (!this.transitionState(delegationId, { type: 'TASK_FAIL' })) {
+        return; // Already in terminal state (e.g. cancelled during LLM call)
+      }
       assignment.completedAt = new Date().toISOString();
       assignment.error = {
         code: ErrorCodes.TASK_FAILED,
@@ -636,17 +643,26 @@ export class ExecutorService implements ExecutorRequestHandler {
   private transitionState(
     delegationId: string,
     event: AssignmentEvent,
-  ): void {
+  ): boolean {
     const sm = this.stateMachines.get(delegationId)!;
     const assignment = this.assignments.get(delegationId)!;
     const result = sm.transition(event);
     if (!result.success) {
+      // If delegation is already in a terminal state (e.g. cancelled while LLM call was in-flight),
+      // log a warning instead of throwing — the late-arriving event is harmless.
+      if (sm.isTerminal()) {
+        console.warn(
+          `[AWCP:Executor] Ignoring late ${event.type} for ${delegationId} (already in terminal state '${assignment.state}')`
+        );
+        return false;
+      }
       throw new Error(
         `Cannot transition assignment ${delegationId} (${event.type}) in state '${assignment.state}': ${result.error}`
       );
     }
     assignment.state = sm.getState();
     assignment.updatedAt = new Date().toISOString();
+    return true;
   }
 
   private async persistAssignment(delegationId: string): Promise<void> {

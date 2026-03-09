@@ -51,7 +51,7 @@ export async function startDelegatorDaemon(config: DaemonConfig): Promise<Daemon
    */
   app.post('/delegate', async (req, res) => {
     try {
-      const { executorUrl, environment, task, ttlSeconds, accessMode } = req.body;
+      const { executorUrl, environment, task, ttlSeconds, accessMode, snapshotMode } = req.body;
 
       if (!executorUrl || !environment || !task) {
         res.status(400).json({
@@ -66,6 +66,7 @@ export async function startDelegatorDaemon(config: DaemonConfig): Promise<Daemon
         task,
         ttlSeconds,
         accessMode,
+        snapshotMode,
       });
 
       res.json({ delegationId });

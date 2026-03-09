@@ -8,7 +8,7 @@ export class FsResourceAdapter implements ResourceAdapter {
 
   async materialize(spec: ResourceSpec, targetPath: string): Promise<void> {
     await mkdir(dirname(targetPath), { recursive: true });
-    await symlink(spec.source, targetPath);
+    await symlink(spec.source, targetPath, 'dir');
   }
 
   async apply(sourcePath: string, targetPath: string): Promise<void> {
